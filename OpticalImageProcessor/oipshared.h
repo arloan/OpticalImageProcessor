@@ -26,7 +26,7 @@
 
 #define BYTES_PER_PIXEL     2       // Little Endian
 #define PIXELS_PER_LINE     12288
-#define MSS_SECTIONS        4
+#define MSS_BANDS           4
 #define PIXELS_PER_MSSSEC   (PIXELS_PER_LINE/MSS_SECTIONS)
 
 #define AN_PAN  "-pan:"
@@ -41,11 +41,11 @@
 
 #define TASKKEY_PAN     "PAN"
 #define TASKKEY_MSS     "MSS"
-#define TASKKEY_RRSPAN  "RRS_PAN"
-#define TASKKEY_RRSMS1  "RRS_MSB1"
-#define TASKKEY_RRSMS2  "RRS_MSB2"
-#define TASKKEY_RRSMS3  "RRS_MSB3"
-#define TASKKEY_RRSMS4  "RRS_MSB4"
+#define TASKKEY_RRCPAN  "RRC_PAN"
+#define TASKKEY_RRCMS1  "RRC_MSB1"
+#define TASKKEY_RRCMS2  "RRC_MSB2"
+#define TASKKEY_RRCMS3  "RRC_MSB3"
+#define TASKKEY_RRCMS4  "RRC_MSB4"
 
 #define BEGIN_NS(ns) namespace ns {
 #define END_NS }
@@ -58,5 +58,12 @@ IMSUX_USE_NS
 struct FileDtor {
     inline void operator () (FILE * f) { fclose(f); }
 };
+
+#define OLOG(fmt, ...)  printf(fmt "\n", ##__VA_ARGS__)
+#ifdef DEBUG
+#define DLOG    OLOG
+#else
+#define DLOG
+#endif
 
 #endif /* oipshared_h */

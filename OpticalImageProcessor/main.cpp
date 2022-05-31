@@ -36,7 +36,7 @@ void ParseTaskFile(const char * taskFile, InputParameters & ip) {
     char buff[2048] = { 0 };
     for (char * rp = NULL; (rp = fgets(buff, sizeof(buff), f)); ) {
         ToolBox::ChompChars(buff, strlen(buff));
-        
+
         auto pos = strchr(buff, '=');
         if (pos == NULL) {
             fprintf(stderr, "ignored: unrecognized line: %s", buff);
@@ -44,21 +44,25 @@ void ParseTaskFile(const char * taskFile, InputParameters & ip) {
         }
         auto value = ToolBox::FirstNonChars(pos+1);
         *pos = '\0';
-        auto key = ToolBox::ChompChars(buff, pos - buff);
+        auto key = ToolBox::ChompChars(buff, pos - buff, "\t ");
+        
+//#ifdef DEBUG
+//        printf("key: `%s', value: `%s'\n", key, value);
+//#endif
         
         if (strcmp(key, TASKKEY_PAN) == 0) {
             strncpy(ip.RawFilePAN, value, MAX_PATH);
         } else if (strcmp(key, TASKKEY_MSS) == 0) {
             strncpy(ip.RawFileMSS, value, MAX_PATH);
-        } else if (strcmp(key, TASKKEY_RRSPAN) == 0) {
+        } else if (strcmp(key, TASKKEY_RRCPAN) == 0) {
+            strncpy(ip.RRCParaPAN, value, MAX_PATH);
+        } else if (strcmp(key, TASKKEY_RRCMS1) == 0) {
             strncpy(ip.RRCParaMS1, value, MAX_PATH);
-        } else if (strcmp(key, TASKKEY_RRSMS1) == 0) {
-            strncpy(ip.RRCParaMS1, value, MAX_PATH);
-        } else if (strcmp(key, TASKKEY_RRSMS2) == 0) {
+        } else if (strcmp(key, TASKKEY_RRCMS2) == 0) {
             strncpy(ip.RRCParaMS2, value, MAX_PATH);
-        } else if (strcmp(key, TASKKEY_RRSMS3) == 0) {
+        } else if (strcmp(key, TASKKEY_RRCMS3) == 0) {
             strncpy(ip.RRCParaMS3, value, MAX_PATH);
-        } else if (strcmp(key, TASKKEY_RRSMS4) == 0) {
+        } else if (strcmp(key, TASKKEY_RRCMS4) == 0) {
             strncpy(ip.RRCParaMS4, value, MAX_PATH);
         }
     }

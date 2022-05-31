@@ -36,6 +36,12 @@ public:
     mRrcMssB2File(rrcFile4MSSB2),
     mRrcMssB3File(rrcFile4MSSB3),
     mRrcMssB4File(rrcFile4MSSB4) {
+        
+#ifdef DEBUG
+        printf("PAN: %s\n", mPanFile.c_str());
+        printf("MSS: %s\n", mMssFile.c_str());
+#endif
+
         CheckFilesAttributes();
         LoadRRCParamFiles();
     }
@@ -43,35 +49,109 @@ public:
     // Relative radiation correction
     void DoRRC() {
         // 1. PAN image RRC
+        scoped_ptr<char> pan = ReadPAN();
+        
+        OLOG("Begin inplace RRC for PAN data ... ");
+        InplaceRRC((uint16_t *)pan.get(), PIXELS_PER_LINE, mLinesPAN, mRRCParamPAN);
+        OLOG("RRC for PAN done.");
+        
+        // 2. MSS image RRC
+        char * tmpBands[4] = { 0 };
+        ReadMSS(tmpBands);
+        
+        scoped_ptr<char> mssBands[MSS_BANDS];
+        const RRCParam * rrcParamMssBands[MSS_BANDS] = {
+            mRRCParamMSSB1.get(),
+            mRRCParamMSSB2.get(),
+            mRRCParamMSSB3.get(),
+            mRRCParamMSSB4.get()
+        };
+        for (int i = 0; i < MSS_BANDS; ++i) {
+            mssBands[i].attach(tmpBands[i]);
+            
+            OLOG("Begin inplace RRC for MSS band %d ... ", i);
+            InplaceRRC((uint16_t *)tmpBands[i], PIXELS_PER_LINE / MSS_BANDS, mLinesMSS, rrcParamMssBands[i]);
+            OLOG("RRC done for MSS band %d.", i);
+        }
     }
     
 protected:
+    void InplaceRRC(uint16_t * buff, int w, int h, const RRCParam * rrcParam) {
+        for (off_t x = 0; x < w; ++x) {
+            for (off_t y = 0; y < h; ++y) {
+                off_t idx = w * y + x;
+                uint16_t src = buff[idx];
+                uint16_t dst = (uint16_t)(rrcParam[x].k * src + rrcParam[x].b);
+                buff[idx] = dst;
+            }
+        }
+    }
+    
     char * ReadPAN() {
+        OLOG("Reading PAN raw file content (time consuming) from `%s' ...", mPanFile.c_str());
         off_t size = 0;
         char * data = ReadFileContent(mPanFile.c_str(), size);
         if (size != mSizePAN) {
             throw std::runtime_error(xs("PAN file size(%ld) doesn't match with read byte count(%ld)", mSizePAN, size).s);
         }
+        OLOG("ReadPAN(): %lld bytes read.", size);
         return data;
     }
     
+    void ReadMSS(char * mss[MSS_BANDS]) {
+        OLOG("Reading MSS raw file content from `%s' ...", mMssFile.c_str());
+        off_t size = 0;
+        scoped_ptr<char> mssMixed = ReadFileContent(mMssFile.c_str(), size);
+        if (size != mSizeMSS) {
+            throw std::runtime_error(xs("MSS file size(%ld) doesn't match with read byte count(%ld)", mSizeMSS, size).s);
+        }
+        OLOG("ReadMSS(): %lld bytes read.", size);
+        
+        scoped_ptr<char> mssBands[MSS_BANDS];
+        for (int i = 0; i < MSS_BANDS; ++i) {
+            mssBands[i].attach(new char[mSizeMSS]);
+        }
+        
+        // split MSS 4 bands
+        OLOG("ReadMSS(): splitting %d bands ...", MSS_BANDS);
+        for (int i = 0; i < mLinesMSS; ++i) {
+            int lineWidth = PIXELS_PER_LINE * BYTES_PER_PIXEL;
+            int bandWidth = lineWidth / MSS_BANDS;
+            for (int b = 0; b < MSS_BANDS; ++b) {
+                memcpy(mssBands[b].get() + i * bandWidth, mssMixed.get() + i * lineWidth + b * bandWidth, bandWidth);
+            }
+        }
+        
+        for (int i = 0; i < MSS_BANDS; ++i) {
+            mss[i] = mssBands[i].detach();
+        }
+        OLOG("ReadMSS(): splitting OK.");
+    }
+    
     void LoadRRCParamFiles() {
-        mRRCParamPAN   = LoadRRCParamFile(mRrcPanFile  .c_str(), mLinesPAN);
-        mRRCParamMSSB1 = LoadRRCParamFile(mRrcMssB1File.c_str(), mLinesMSS);
-        mRRCParamMSSB2 = LoadRRCParamFile(mRrcMssB2File.c_str(), mLinesMSS);
-        mRRCParamMSSB3 = LoadRRCParamFile(mRrcMssB3File.c_str(), mLinesMSS);
-        mRRCParamMSSB4 = LoadRRCParamFile(mRrcMssB4File.c_str(), mLinesMSS);
+        int rrcLinesPAN = PIXELS_PER_LINE;
+        int rrcLinesMSS = rrcLinesPAN / MSS_BANDS;
+        mRRCParamPAN   = LoadRRCParamFile(mRrcPanFile  .c_str(), rrcLinesPAN);
+        mRRCParamMSSB1 = LoadRRCParamFile(mRrcMssB1File.c_str(), rrcLinesMSS);
+        mRRCParamMSSB2 = LoadRRCParamFile(mRrcMssB2File.c_str(), rrcLinesMSS);
+        mRRCParamMSSB3 = LoadRRCParamFile(mRrcMssB3File.c_str(), rrcLinesMSS);
+        mRRCParamMSSB4 = LoadRRCParamFile(mRrcMssB4File.c_str(), rrcLinesMSS);
+#ifdef DEBUG
+        printf("LoadRRCParamFiles(): OK.\n");
+#endif
     }
     
     void CheckFilesAttributes() {
         struct stat st = { 0 };
         
         // PAN file
+        OLOG("Checking PAN raw file attributes ...");
         if (stat(mPanFile.c_str(), &st)) throw errno_error(xs("stat() call for PAN file failed: %d", errno));
         mSizePAN = st.st_size;
         mLinesPAN = (int)(mSizePAN / (PIXELS_PER_LINE * BYTES_PER_PIXEL));
         
         // MSS file
+        OLOG("Checking PAN raw file attributes ...");
         memset(&st, 0, sizeof(struct stat));
         if (stat(mMssFile.c_str(), &st)) throw errno_error(xs("stat() call for MSS file failed: %d", errno));
         mSizeMSS = st.st_size;
@@ -81,10 +161,14 @@ protected:
             throw std::runtime_error("PAN file size does not match MSS file size: PAN file should be 4x as large as MSS file");
         if (mSizePAN % (PIXELS_PER_LINE * BYTES_PER_PIXEL) != 0)
             throw std::runtime_error(xs("PAN file size invalid: should be multiplies of %d", (PIXELS_PER_LINE * BYTES_PER_PIXEL)).s);
+
+        OLOG("CheckFilesAttributes(): OK.");
     }
     
     static RRCParam * LoadRRCParamFile(const char * paramFilePath, int expectedLines) {
+        OLOG("Loading RRC paramter from file `%s' ...", paramFilePath);
         scoped_ptr<FILE, FileDtor> f = fopen(paramFilePath, "rb");
+        if (f.isNull()) throw errno_error(xs("open RRC Param file failed: %d", errno));
         
         const int bn = 1024;
         char buff[bn];
@@ -131,6 +215,7 @@ protected:
                                         , paramFilePath, expectedLines, index).s);
         }
 
+        OLOG("LoadRRCParamFile(): loaded.");
         return params.detach();
     }
     
@@ -139,7 +224,7 @@ protected:
         if (filePath == nullptr) throw std::invalid_argument("invalid or empty file path");
         
         scoped_ptr<FILE, FileDtor> f = fopen(filePath, "rb");
-        throw errno_error(xs("cannot open file [%s]: %d", filePath, errno));
+        if (f.isNull()) throw errno_error(xs("cannot open file [%s]: %d", filePath, errno));
         
         if (fseek(f, 0, SEEK_END)) throw errno_error(xs("ReadFileContent(): seek2end failed: %d", errno));
         off_t fsize = ftello(f);

@@ -28,6 +28,7 @@
 		8E94170A284470A200AB2256 /* oipshared.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = oipshared.h; sourceTree = "<group>"; };
 		8E94170B284470DC00AB2256 /* preproc.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = preproc.h; sourceTree = "<group>"; };
 		8E94170C2845057A00AB2256 /* toolbox.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = toolbox.h; sourceTree = "<group>"; };
+		8E94170D2845B83A00AB2256 /* sample-task.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "sample-task.txt"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -64,6 +65,7 @@
 				8E94170A284470A200AB2256 /* oipshared.h */,
 				8E94170B284470DC00AB2256 /* preproc.h */,
 				8E94170C2845057A00AB2256 /* toolbox.h */,
+				8E94170D2845B83A00AB2256 /* sample-task.txt */,
 			);
 			path = OpticalImageProcessor;
 			sourceTree = "<group>";

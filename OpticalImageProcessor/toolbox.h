@@ -42,7 +42,7 @@ public:
             }
             if (!foundBadChar) break;
         }
-        return --buff;
+        return buff;
     }
 
 };
