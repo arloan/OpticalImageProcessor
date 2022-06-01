@@ -28,6 +28,7 @@
 #define PIXELS_PER_LINE     12288
 #define MSS_BANDS           4
 #define PIXELS_PER_MSSSEC   (PIXELS_PER_LINE/MSS_SECTIONS)
+#define CORRELATION_LINES   16000
 
 #define AN_PAN  "-pan:"
 #define AN_MSS  "-mss:"

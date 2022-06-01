@@ -10,6 +10,11 @@
 
 #include <stdio.h>
 #include <sys/stat.h>
+#include <algorithm>
+
+#include <opencv2/core/mat.hpp>
+#include <opencv2/imgproc.hpp>
+#include <NumCpp/Polynomial/Poly1d.hpp>
 
 #include "oipshared.h"
 #include "toolbox.h"
@@ -18,6 +23,12 @@ BEGIN_NS(OIP)
 struct RRCParam {
     double k;
     double b;
+};
+struct InterBandShift {
+    double dx;
+    double dy;
+    double rs;
+    int cx; // center-x: in pixel
 };
 
 class PreProcessor {
@@ -36,7 +47,7 @@ public:
     mRrcMssB2File(rrcFile4MSSB2),
     mRrcMssB3File(rrcFile4MSSB3),
     mRrcMssB4File(rrcFile4MSSB4) {
-        
+
 #ifdef DEBUG
         printf("PAN: %s\n", mPanFile.c_str());
         printf("MSS: %s\n", mMssFile.c_str());
@@ -46,20 +57,76 @@ public:
         LoadRRCParamFiles();
     }
     
+    void LoadPAN() {
+        OLOG("Reading PAN raw file content from `%s' ...", mPanFile.c_str());
+        off_t size = 0;
+        mImagePAN = (uint16_t *)ReadFileContent(mPanFile.c_str(), size);
+        if (size != mSizePAN) {
+            throw std::runtime_error(xs("PAN file size(%lld) doesn't match with read byte count(%lld)", mSizePAN, size).s);
+        }
+        OLOG("ReadPAN(): %lld bytes read.", size);
+    }
+    
+    void LoadMSS() {
+        OLOG("Reading MSS raw file content from `%s' ...", mMssFile.c_str());
+        
+        off_t size = 0;
+        scoped_ptr<uint16_t> mssMixed = (uint16_t *)ReadFileContent(mMssFile.c_str(), size);
+        if (size != mSizeMSS) {
+            throw std::runtime_error(xs("MSS file size(%lld) doesn't match with read byte count(%lld)", mSizeMSS, size).s);
+        }
+        OLOG("ReadMSS(): %lld bytes read.", size);
+        
+        // split MSS 4 bands
+        OLOG("ReadMSS(): splitting %d bands ...", MSS_BANDS);
+        int lineBytes = PIXELS_PER_LINE * BYTES_PER_PIXEL;
+        int bandBytesPerLine = lineBytes / MSS_BANDS;
+        int bandPixelsPerLine = PIXELS_PER_LINE / MSS_BANDS; // MSS_BANDS: should always divisible by PIXELS_PER_LINE
+        for (int i = 0; i < MSS_BANDS; ++i) {
+            mImageBandMSS[i].attach(new uint16_t[mPixelsMSS / MSS_BANDS]); // obsolte: `+1' for in case of indivisible
+        }
+        for (int i = 0; i < mLinesMSS; ++i) {
+            for (int b = 0; b < MSS_BANDS; ++b) {
+                memcpy(mImageBandMSS[b].get() + i * PIXELS_PER_LINE,
+                       mssMixed.get() + i * PIXELS_PER_LINE + b * bandPixelsPerLine,
+                       bandBytesPerLine);
+            }
+        }
+        
+        OLOG("ReadMSS(): splitting OK.");
+    }
+    
+    void UnloadPAN() {
+        mImagePAN.attach(NULL);
+    }
+    void UnloadMSS() {
+        for (int i = 0; i < MSS_BANDS; ++i) mImageBandMSS[i].attach(NULL);
+    }
+    void FreeAlignedMSS() {
+        mAlignedMSS.attach(NULL);
+    }
+    
+    void WriteAlignedMSS_RAW() {
+        // TODO:
+    }
+    
+    void WriteAlignedMSS_TIFF() {
+        // TODO:
+    }
+    
     // Relative radiation correction
     void DoRRC() {
+        if (mImagePAN.isNull()) throw std::logic_error("PAN raw image data not loaded, call `LoadPAN()' first");
+        for (int b = 0; b < MSS_BANDS; ++b) {
+            if (mImageBandMSS[b].isNull()) throw std::logic_error("MSS raw image data not loaded, call `LoadMSS()' first");
+        }
+
         // 1. PAN image RRC
-        scoped_ptr<char> pan = ReadPAN();
-        
         OLOG("Begin inplace RRC for PAN data ... ");
-        InplaceRRC((uint16_t *)pan.get(), PIXELS_PER_LINE, mLinesPAN, mRRCParamPAN);
+        InplaceRRC(mImagePAN.get(), PIXELS_PER_LINE, mLinesPAN, mRRCParamPAN);
         OLOG("RRC for PAN done.");
         
         // 2. MSS image RRC
-        char * tmpBands[4] = { 0 };
-        ReadMSS(tmpBands);
-        
-        scoped_ptr<char> mssBands[MSS_BANDS];
         const RRCParam * rrcParamMssBands[MSS_BANDS] = {
             mRRCParamMSSB1.get(),
             mRRCParamMSSB2.get(),
@@ -67,15 +134,128 @@ public:
             mRRCParamMSSB4.get()
         };
         for (int i = 0; i < MSS_BANDS; ++i) {
-            mssBands[i].attach(tmpBands[i]);
-            
             OLOG("Begin inplace RRC for MSS band %d ... ", i);
-            InplaceRRC((uint16_t *)tmpBands[i], PIXELS_PER_LINE / MSS_BANDS, mLinesMSS, rrcParamMssBands[i]);
+            InplaceRRC(mImageBandMSS[i].get(), PIXELS_PER_LINE / MSS_BANDS, mLinesMSS, rrcParamMssBands[i]);
             OLOG("RRC done for MSS band %d.", i);
         }
     }
     
+    void CalcInterBandCorrelation(int slices, bool autoUnloadPAN = true) {
+        if (slices <= 0) {
+            throw std::invalid_argument("CalcInterBandCorrelation: at lease 1 slice needed");
+        }
+        
+        OLOG("Calculating inter-band correlation with %d slicing ...", slices);
+
+        int baseRows = std::min(mLinesPAN, CORRELATION_LINES);
+        cv::Mat baseImage(baseRows, PIXELS_PER_LINE / slices, CV_16U, mImagePAN.get() + PIXELS_PER_LINE * (mLinesPAN - baseRows) / 2);
+        scoped_ptr<uint16_t> scaledMssBuffer = new uint16_t[(size_t)PIXELS_PER_LINE * mLinesPAN];
+        scoped_ptr<InterBandShift> bandShifts[MSS_BANDS];
+        for (int b = 0; b < MSS_BANDS; ++b) {
+            OLOG("Calculating inter-band correlation of BAND%d ...", b);
+            bandShifts[b] = CalcInterBandCorrelation(baseImage, scaledMssBuffer, b, slices);
+            
+            // x拟合为直线，y拟合为二次曲线
+            OLOG("Doing polynomial fitting for BAND %d ...", b);
+            std::vector<double> cxvals;
+            std::vector<double> xvals;
+            std::vector<double> yvals;
+            for (int i = 0; i < slices; ++i) {
+                const InterBandShift & ibs = bandShifts[b][i];
+                cxvals.push_back((double)ibs.cx);
+                xvals.push_back(ibs.dx);
+                yvals.push_back(ibs.dy);
+            }
+            nc::NdArray<double> cxValues(cxvals);
+            nc::NdArray<double> dXvalues(xvals);
+            nc::NdArray<double> dYvalues(yvals);
+            auto poly1dX = nc::polynomial::Poly1d<double>::fit(cxValues, dXvalues, 1);
+            auto poly1dY = nc::polynomial::Poly1d<double>::fit(cxValues, dYvalues, 2);
+            auto coeffsX = poly1dX.coefficients();
+            auto coeffsY = poly1dY.coefficients();
+            
+            mDeltaXcoeffs[b][0] = coeffsX[0];
+            mDeltaXcoeffs[b][1] = coeffsX[1];
+            mDeltaYcoeffs[b][0] = coeffsY[0];
+            mDeltaYcoeffs[b][1] = coeffsY[1];
+            mDeltaYcoeffs[b][2] = coeffsY[2];
+        }
+        
+        if (autoUnloadPAN) {
+            OLOG("Unloading PAN raw image data ...");
+            UnloadPAN();
+            OLOG("Unloaded.");
+        }
+        
+        OLOG("CalcInterBandCorrelation(): done.");
+    }
+    
+    void DoInterBandAlignment() {
+        OLOG("Doing inter-band alignment ...");
+        mAlignedMSS = new uint16_t[(size_t)mLinesMSS * PIXELS_PER_LINE];
+        int pixelPerBand = PIXELS_PER_LINE / MSS_BANDS;
+        for (int x = 0; x < PIXELS_PER_LINE; ++x) {
+            for (int y = 0; y < mLinesMSS; ++y) {
+                int band = x / pixelPerBand;
+                int xInBand = x % pixelPerBand;
+                uint16_t * bandImage = mImageBandMSS[band];
+                
+                auto coeffX = mDeltaXcoeffs[band];
+                auto coeffY = mDeltaYcoeffs[band];
+                double deltaX = coeffX[1] * xInBand + coeffX[0];
+                double deltaY = coeffY[2] * xInBand * xInBand + coeffY[1] * xInBand + coeffY[0];
+                int mapx = (int)(xInBand + deltaX);
+                int mapy = (int)(y + deltaY);
+                
+                size_t destIdx = y * PIXELS_PER_LINE + x;
+                size_t srcIdx = mapy * pixelPerBand + mapx;
+                mAlignedMSS[destIdx] = bandImage[srcIdx];
+            }
+        }
+        OLOG("DoInterBandAlignment(): done.");
+    }
+    
 protected:
+    InterBandShift * CalcInterBandCorrelation(const cv::Mat& baseImage, uint16_t * scaledBandBuffer, int bandIndex, int slices) {
+        uint16_t * bandImage = mImageBandMSS[bandIndex];
+        scoped_ptr<uint16_t> scaled = UpscaleMssBand(bandImage, PIXELS_PER_LINE/MSS_BANDS, mLinesMSS);
+        
+        scoped_ptr<InterBandShift> bandShifts = new InterBandShift[slices];
+        for (int i = 0; i < slices; ++i) {
+            scoped_ptr<uint16_t> slice = CopyVerticalSplittedBufferSlice(scaled, PIXELS_PER_LINE, mLinesPAN, slices, i);
+            cv::Mat comparingImage(baseImage.rows, baseImage.cols, CV_16U, slice.get() + PIXELS_PER_LINE * (mLinesPAN - baseImage.rows) / 2);
+            double res = 0.0;
+            cv::Point2d rv = cv::phaseCorrelate(baseImage, comparingImage, cv::noArray(), &res);
+            InterBandShift & shift = bandShifts[i];
+            shift.dx = rv.x;
+            shift.dy = rv.y;
+            shift.rs = res;
+            shift.cx = i * baseImage.cols + baseImage.cols / 2;
+        }
+        return bandShifts.detach();
+    }
+    
+    static uint16_t * CopyVerticalSplittedBufferSlice(const uint16_t * buffer, int w, int h, int slices, int sliceIndex) {
+        int sliceW = w / slices;
+        scoped_ptr<uint16_t> slice = new uint16_t[(size_t)sliceW * h];
+        
+        for (int i = 0; i < h; ++i) {
+            memcpy(slice.get() + i * sliceW, buffer + i * w + sliceIndex * sliceW, sliceW * sizeof(uint16_t));
+        }
+        
+        return slice.detach();
+    }
+    
+    uint16_t * UpscaleMssBand(uint16_t * band, int w, int h, int scaleX = 4, int scaleY = 4) {
+        scoped_ptr<uint16_t> scaled = new uint16_t[(size_t)w * scaleX * h * scaleY];
+        
+        cv::Mat bandImage(mLinesMSS, PIXELS_PER_LINE/MSS_BANDS, CV_16U, band);
+        cv::Mat scaledImage(mLinesPAN, PIXELS_PER_LINE, CV_16U, scaled.get());
+        cv::resize(bandImage, scaledImage, cv::Size(0, 0), scaleX, scaleY, cv::INTER_CUBIC);
+        
+        return scaled.detach();
+    }
+    
     void InplaceRRC(uint16_t * buff, int w, int h, const RRCParam * rrcParam) {
         for (off_t x = 0; x < w; ++x) {
             for (off_t y = 0; y < h; ++y) {
@@ -85,47 +265,6 @@ protected:
                 buff[idx] = dst;
             }
         }
-    }
-    
-    char * ReadPAN() {
-        OLOG("Reading PAN raw file content (time consuming) from `%s' ...", mPanFile.c_str());
-        off_t size = 0;
-        char * data = ReadFileContent(mPanFile.c_str(), size);
-        if (size != mSizePAN) {
-            throw std::runtime_error(xs("PAN file size(%ld) doesn't match with read byte count(%ld)", mSizePAN, size).s);
-        }
-        OLOG("ReadPAN(): %lld bytes read.", size);
-        return data;
-    }
-    
-    void ReadMSS(char * mss[MSS_BANDS]) {
-        OLOG("Reading MSS raw file content from `%s' ...", mMssFile.c_str());
-        off_t size = 0;
-        scoped_ptr<char> mssMixed = ReadFileContent(mMssFile.c_str(), size);
-        if (size != mSizeMSS) {
-            throw std::runtime_error(xs("MSS file size(%ld) doesn't match with read byte count(%ld)", mSizeMSS, size).s);
-        }
-        OLOG("ReadMSS(): %lld bytes read.", size);
-        
-        scoped_ptr<char> mssBands[MSS_BANDS];
-        for (int i = 0; i < MSS_BANDS; ++i) {
-            mssBands[i].attach(new char[mSizeMSS]);
-        }
-        
-        // split MSS 4 bands
-        OLOG("ReadMSS(): splitting %d bands ...", MSS_BANDS);
-        for (int i = 0; i < mLinesMSS; ++i) {
-            int lineWidth = PIXELS_PER_LINE * BYTES_PER_PIXEL;
-            int bandWidth = lineWidth / MSS_BANDS;
-            for (int b = 0; b < MSS_BANDS; ++b) {
-                memcpy(mssBands[b].get() + i * bandWidth, mssMixed.get() + i * lineWidth + b * bandWidth, bandWidth);
-            }
-        }
-        
-        for (int i = 0; i < MSS_BANDS; ++i) {
-            mss[i] = mssBands[i].detach();
-        }
-        OLOG("ReadMSS(): splitting OK.");
     }
     
     void LoadRRCParamFiles() {
@@ -148,6 +287,7 @@ protected:
         OLOG("Checking PAN raw file attributes ...");
         if (stat(mPanFile.c_str(), &st)) throw errno_error(xs("stat() call for PAN file failed: %d", errno));
         mSizePAN = st.st_size;
+        mPixelsPAN = mSizePAN / BYTES_PER_PIXEL;
         mLinesPAN = (int)(mSizePAN / (PIXELS_PER_LINE * BYTES_PER_PIXEL));
         
         // MSS file
@@ -155,6 +295,7 @@ protected:
         memset(&st, 0, sizeof(struct stat));
         if (stat(mMssFile.c_str(), &st)) throw errno_error(xs("stat() call for MSS file failed: %d", errno));
         mSizeMSS = st.st_size;
+        mPixelsMSS = mSizeMSS / BYTES_PER_PIXEL;
         mLinesMSS = (int)(mSizeMSS / (PIXELS_PER_LINE * BYTES_PER_PIXEL));
         
         if (mSizePAN != 4 * mSizeMSS)
@@ -261,10 +402,21 @@ private:
     scoped_ptr<RRCParam, array_dtor<RRCParam>> mRRCParamMSSB3;
     scoped_ptr<RRCParam, array_dtor<RRCParam>> mRRCParamMSSB4;
 
-    off_t mSizePAN;
-    off_t mSizeMSS;
+    off_t mSizePAN; // in Bytes
+    off_t mSizeMSS; // in Bytes, all bands
+    off_t mPixelsPAN;
+    off_t mPixelsMSS; // all bands
+    
     int mLinesPAN;
     int mLinesMSS;
+    
+    InterBandShift mBandShift[MSS_BANDS];
+    scoped_ptr<uint16_t> mImagePAN;
+    scoped_ptr<uint16_t> mImageBandMSS[MSS_BANDS];
+    scoped_ptr<uint16_t> mAlignedMSS;
+    
+    double mDeltaXcoeffs[MSS_BANDS][2];
+    double mDeltaYcoeffs[MSS_BANDS][3];
 };
 
 END_NS

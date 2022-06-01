@@ -120,7 +120,14 @@ int main(int argc, const char * argv[]) {
                         , ips_.RRCParaMS3
                         , ips_.RRCParaMS4
                         );
+        pp.LoadPAN();
+        pp.LoadMSS();
         pp.DoRRC();
+        pp.CalcInterBandCorrelation(10);
+        pp.DoInterBandAlignment();
+        pp.UnloadMSS();
+        pp.WriteAlignedMSS_RAW();
+        pp.WriteAlignedMSS_TIFF();
         
         return 0;
     } catch (std::invalid_argument & ex) {
