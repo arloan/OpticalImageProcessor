@@ -30,7 +30,7 @@ public:
         return buff;
     }
 
-    static inline const char * FirstNonChars(const char * buff, const char * excludes = "\t ") {
+    static inline char * FirstValidChars(char * buff, const char * excludes = "\t ") {
         auto n = strlen(excludes);
         for (; *buff; ++buff) {
             bool foundBadChar = false;
@@ -45,6 +45,9 @@ public:
         return buff;
     }
 
+    static inline const char * FirstValidChars(const char * buff, const char * excludes = "\t ") {
+        return (const char *)FirstValidChars((char *)buff, excludes);
+    }
 };
 
 END_NS

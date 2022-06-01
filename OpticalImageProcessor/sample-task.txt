@@ -5,3 +5,4 @@ RRC_MSB1 = /Users/stone/Library/CloudStorage/OneDrive-Personal/工作/星睿/产
 RRC_MSB2 = /Users/stone/Library/CloudStorage/OneDrive-Personal/工作/星睿/产品_项目/星睿七号-泰景三号/相对辐射定标系数CSV/MSS-1.B2.csv
 RRC_MSB3 = /Users/stone/Library/CloudStorage/OneDrive-Personal/工作/星睿/产品_项目/星睿七号-泰景三号/相对辐射定标系数CSV/MSS-1.B3.csv
 RRC_MSB4 = /Users/stone/Library/CloudStorage/OneDrive-Personal/工作/星睿/产品_项目/星睿七号-泰景三号/相对辐射定标系数CSV/MSS-1.B4.csv
+IBCOR_SLICES = 10

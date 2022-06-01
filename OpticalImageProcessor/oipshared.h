@@ -47,6 +47,9 @@
 #define TASKKEY_RRCMS2  "RRC_MSB2"
 #define TASKKEY_RRCMS3  "RRC_MSB3"
 #define TASKKEY_RRCMS4  "RRC_MSB4"
+#define TASKKEY_IBCSLCS "IBCOR_SLICES"
+
+#define DEFAULT_IBCSLCS 10
 
 #define BEGIN_NS(ns) namespace ns {
 #define END_NS }

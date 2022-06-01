@@ -15,57 +15,62 @@
 
 USING_NS(OIP)
 
-typedef struct _InputParameters {
-    char RawFilePAN[MAX_PATH];
-    char RawFileMSS[MAX_PATH];
+struct InputParameters {
+    std::string RawFilePAN;
+    std::string RawFileMSS;
     
     // Relative radiation correction parameter file
-    char RRCParaPAN[MAX_PATH];
-    char RRCParaMS1[MAX_PATH];
-    char RRCParaMS2[MAX_PATH];
-    char RRCParaMS3[MAX_PATH];
-    char RRCParaMS4[MAX_PATH];
-} InputParameters;
+    std::string RRCParaPAN;
+    std::string RRCParaMSS[MSS_BANDS];
+    
+    int IBCOR_Slices;
+};
 
 InputParameters ips_ = { 0 };
 
 void ParseTaskFile(const char * taskFile, InputParameters & ip) {
     scoped_ptr<FILE, FileDtor> f = fopen(taskFile, "rb");
-    if (f.isNull()) throw errno_error(xs("cannot open task file: %d", errno));
+    if (f.isNull()) throw errno_error("cannot open task file");
     
     char buff[2048] = { 0 };
     for (char * rp = NULL; (rp = fgets(buff, sizeof(buff), f)); ) {
         ToolBox::ChompChars(buff, strlen(buff));
+        char * buf = ToolBox::FirstValidChars(buff);
+        if (buf[0] == '#') continue;
 
-        auto pos = strchr(buff, '=');
+        auto pos = strchr(buf, '=');
         if (pos == NULL) {
             fprintf(stderr, "ignored: unrecognized line: %s", buff);
             continue;
         }
-        auto value = ToolBox::FirstNonChars(pos+1);
+        auto value = ToolBox::FirstValidChars(pos+1);
         *pos = '\0';
-        auto key = ToolBox::ChompChars(buff, pos - buff, "\t ");
+        auto key = ToolBox::ChompChars(buf, pos - buff, "\t ");
         
 //#ifdef DEBUG
 //        printf("key: `%s', value: `%s'\n", key, value);
 //#endif
         
-        if (strcmp(key, TASKKEY_PAN) == 0) {
-            strncpy(ip.RawFilePAN, value, MAX_PATH);
-        } else if (strcmp(key, TASKKEY_MSS) == 0) {
-            strncpy(ip.RawFileMSS, value, MAX_PATH);
+        if (       strcmp(key, TASKKEY_PAN   ) == 0) {
+            ip.RawFilePAN = value;
+        } else if (strcmp(key, TASKKEY_MSS   ) == 0) {
+            ip.RawFileMSS = value;
         } else if (strcmp(key, TASKKEY_RRCPAN) == 0) {
-            strncpy(ip.RRCParaPAN, value, MAX_PATH);
+            ip.RRCParaPAN = value;
         } else if (strcmp(key, TASKKEY_RRCMS1) == 0) {
-            strncpy(ip.RRCParaMS1, value, MAX_PATH);
+            ip.RRCParaMSS[0] = value;
         } else if (strcmp(key, TASKKEY_RRCMS2) == 0) {
-            strncpy(ip.RRCParaMS2, value, MAX_PATH);
+            ip.RRCParaMSS[1] = value;
         } else if (strcmp(key, TASKKEY_RRCMS3) == 0) {
-            strncpy(ip.RRCParaMS3, value, MAX_PATH);
+            ip.RRCParaMSS[2] = value;
         } else if (strcmp(key, TASKKEY_RRCMS4) == 0) {
-            strncpy(ip.RRCParaMS4, value, MAX_PATH);
+            ip.RRCParaMSS[3] = value;
+        } else if (strcmp(key, TASKKEY_IBCSLCS)== 0) {
+            ip.IBCOR_Slices = atoi(value);
         }
     }
+    
+    if (ip.IBCOR_Slices <= 0) ip.IBCOR_Slices = DEFAULT_IBCSLCS;
 }
 
 void ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) {
@@ -115,15 +120,11 @@ int main(int argc, const char * argv[]) {
         PreProcessor pp(  ips_.RawFilePAN
                         , ips_.RawFileMSS
                         , ips_.RRCParaPAN
-                        , ips_.RRCParaMS1
-                        , ips_.RRCParaMS2
-                        , ips_.RRCParaMS3
-                        , ips_.RRCParaMS4
-                        );
+                        , ips_.RRCParaMSS);
         pp.LoadPAN();
         pp.LoadMSS();
         pp.DoRRC();
-        pp.CalcInterBandCorrelation(10);
+        pp.CalcInterBandCorrelation(ips_.IBCOR_Slices);
         pp.DoInterBandAlignment();
         pp.UnloadMSS();
         pp.WriteAlignedMSS_RAW();
