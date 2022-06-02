@@ -106,13 +106,10 @@ public:
     void WriteAlignedMSS_RAW() {
         OLOG("Writing aligned MSS image as RAW file ...");
         
-        std::filesystem::path mssPath(mMssFile);
-        auto ext = mssPath.extension();
-        mssPath.replace_extension(".IBCOR");
-        auto saveFilePath = mssPath.string() + ext.string();
+        auto saveFilePath = BuildOutputFilePath(mMssFile, ".IBCOR");
         WriteBufferToFile((const char *)mAlignedMSS.get(), mLinesMSS * PIXELS_PER_LINE * BYTES_PER_PIXEL, saveFilePath);
         
-        OLOG("Written.");
+        OLOG("Written to file [%s].", saveFilePath.c_str());
     }
     
     void WriteAlignedMSS_TIFF() {
@@ -215,6 +212,15 @@ public:
     }
     
 protected:
+    std::string BuildOutputFilePath(const std::string & templatePath, const std::string & stemExtension) {
+        auto cd = std::filesystem::current_path();
+        std::filesystem::path tmplPath = templatePath;
+        auto outputFilePath = cd / tmplPath.stem();
+        outputFilePath += stemExtension;
+        outputFilePath += tmplPath.extension();
+        return outputFilePath.string();
+    }
+    
     InterBandShift * CalcInterBandCorrelation(const cv::Mat& baseImage, uint16_t * scaledBandBuffer, int bandIndex, int slices) {
         uint16_t * bandImage = mImageBandMSS[bandIndex];
         scoped_ptr<uint16_t> scaled = UpscaleMssBand(bandImage, PIXELS_PER_LINE/MSS_BANDS, (int)mLinesMSS);
