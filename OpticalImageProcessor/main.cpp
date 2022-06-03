@@ -74,34 +74,7 @@ void ParseTaskFile(const char * taskFile, InputParameters & ip) {
 }
 
 void ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) {
-    /// obsolete: oip -pan:/path/to/the/PAN/file -mss:/path/to/the/MSS/file
-    /// command line:
-    /// oip -task:/path/to/the/task/file
     /// task file: describe task parameters, including PAN,MSS,RRC parameter file, etc.
-    /*
-    if (argc < 3) {
-        throw std::invalid_argument("need more command line arguments");
-    }
-    for (int i = 1; i < argc; ++i) {
-        if (strncmp(argv[i], AN_PAN, NPAN) == 0) {
-            strncpy(ips_.RawFilePAN, argv[1]+NPAN, MAX_PATH);
-        }
-        if (strncmp(argv[i], AN_MSS, NMSS) == 0) {
-            strncpy(ips_.RawFileMSS, argv[1]+NMSS, MAX_PATH);
-        }
-        if (strncmp(argv[i], AN_RRC, NRRC) == 0) {
-            strncpy(ips_.RRCParFile, argv[1]+NRRC, MAX_PATH);
-        }
-    }
-    
-    if (ips_.RawFilePAN[0] == 0) throw std::invalid_argument("PAN file path not supplied");
-    if (ips_.RawFileMSS[0] == 0) throw std::invalid_argument("MSS file path not supplied");
-    if (ips_.RRCParFile[0] == 0) throw std::invalid_argument("RRC Parameter file path not supplied");
-
-    if (access(ips_.RawFilePAN, F_OK) != 0) throw std::invalid_argument("specified PAN file not exists");
-    if (access(ips_.RawFileMSS, F_OK) != 0) throw std::invalid_argument("specified MSS file not exists");
-    if (access(ips_.RRCParFile, F_OK) != 0) throw std::invalid_argument("specified RRC Parameter file not exists");
-    //*/
     if (argc != 2 || strncmp(argv[1], AN_TASK, NTASK) != 0) {
         throw std::invalid_argument(xs("USAGE: %s -task:/path/to/task/file", argv[0]).s);
     }
@@ -126,8 +99,7 @@ int main(int argc, const char * argv[]) {
         pp.DoRRC();
         pp.CalcInterBandCorrelation(ips_.IBCOR_Slices);
         pp.DoInterBandAlignment();
-        pp.UnloadMSS();
-        pp.WriteAlignedMSS_RAW();
+        // pp.WriteAlignedMSS_RAW();
         pp.WriteAlignedMSS_TIFF();
         
         return 0;

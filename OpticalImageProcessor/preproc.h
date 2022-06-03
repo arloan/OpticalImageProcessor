@@ -15,6 +15,7 @@
 
 #include <opencv2/core/mat.hpp>
 #include <opencv2/imgproc.hpp>
+#include <opencv2/imgcodecs.hpp>
 #include <NumCpp/Polynomial/Poly1d.hpp>
 
 #include "oipshared.h"
@@ -113,7 +114,15 @@ public:
     }
     
     void WriteAlignedMSS_TIFF() {
-        // TODO:
+        OLOG("Writing aligned MSS image as TIFF file ...");
+        
+        auto saveFilePath = BuildOutputFilePath(mMssFile, ".ALIGNED", ".TIFF");
+        cv::Mat imageData((int)mLinesMSS, PIXELS_PER_LINE, CV_16U, mAlignedMSS.get());
+        if (!cv::imwrite(saveFilePath, imageData)) {
+            throw std::runtime_error("Writing/converting MSS image as TIFF failed");
+        }
+        
+        OLOG("Written to file [%s].", saveFilePath.c_str());
     }
     
     // Relative radiation correction
@@ -222,7 +231,7 @@ public:
         OLOG("CalcInterBandCorrelation(): done.");
     }
     
-    void DoInterBandAlignment() {
+    void DoInterBandAlignment(bool autoUnloadRawMSS = true) {
         OLOG("Doing inter-band alignment ...");
         mAlignedMSS = new uint16_t[mLinesMSS * PIXELS_PER_LINE];
         int pixelPerBand = PIXELS_PER_LINE / MSS_BANDS;
@@ -244,29 +253,36 @@ public:
                 mAlignedMSS[destIdx] = bandImage[srcIdx];
             }
         }
+        if (autoUnloadRawMSS) {
+            OLOG("Unloading MSS (unaligned & band-split) raw image data ...");
+            UnloadMSS();
+            OLOG("Unloaded.");
+        }
         OLOG("DoInterBandAlignment(): done.");
     }
     
 protected:
-    std::string BuildOutputFilePath(const std::string & templatePath, const std::string & stemExtension) {
+    std::string BuildOutputFilePath(const std::string & templatePath
+                                    , const std::string & stemExtension
+                                    , const char * replaceExtension = NULL) {
         auto cd = std::filesystem::current_path();
         std::filesystem::path tmplPath = templatePath;
         auto outputFilePath = cd / tmplPath.stem();
         outputFilePath += stemExtension;
-        outputFilePath += tmplPath.extension();
+        outputFilePath += replaceExtension ? replaceExtension : tmplPath.extension();
         return outputFilePath.string();
     }
     
-    static uint16_t * CopyVerticalSplittedBufferSlice(const uint16_t * buffer, int w, int h, int slices, int sliceIndex) {
-        int sliceW = w / slices;
-        scoped_ptr<uint16_t> slice = new uint16_t[(size_t)sliceW * h];
-        
-        for (size_t i = 0; i < h; ++i) {
-            memcpy(slice.get() + i * sliceW, buffer + i * w + sliceIndex * sliceW, sliceW * sizeof(uint16_t));
-        }
-        
-        return slice.detach();
-    }
+//    static uint16_t * CopyVerticalSplitBufferSlice(const uint16_t * buffer, int w, int h, int slices, int sliceIndex) {
+//        int sliceW = w / slices;
+//        scoped_ptr<uint16_t> slice = new uint16_t[(size_t)sliceW * h];
+//        
+//        for (size_t i = 0; i < h; ++i) {
+//            memcpy(slice.get() + i * sliceW, buffer + i * w + sliceIndex * sliceW, sliceW * sizeof(uint16_t));
+//        }
+//        
+//        return slice.detach();
+//    }
     
     void InplaceRRC(uint16_t * buff, int w, int h, const RRCParam * rrcParam) {
         for (size_t x = 0; x < w; ++x) {

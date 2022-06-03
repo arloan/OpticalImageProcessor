@@ -194,6 +194,7 @@
 				OTHER_LDFLAGS = (
 					"-lopencv_core",
 					"-lopencv_imgproc",
+					"-lopencv_imgcodecs",
 				);
 				SDKROOT = macosx;
 			};
@@ -252,6 +253,7 @@
 				OTHER_LDFLAGS = (
 					"-lopencv_core",
 					"-lopencv_imgproc",
+					"-lopencv_imgcodecs",
 				);
 				SDKROOT = macosx;
 			};
