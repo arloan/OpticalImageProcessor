@@ -137,27 +137,63 @@ public:
     }
     
     void CalcInterBandCorrelation(int slices, bool autoUnloadPAN = true) {
-        if (slices <= 0) {
-            throw std::invalid_argument("CalcInterBandCorrelation: at lease 1 slice needed");
+        if (slices < MINIMUM_IBCSLCS) {
+            throw std::invalid_argument(xs("CalcInterBandCorrelation: at lease %d slice needed", MINIMUM_IBCSLCS).s);
         }
         
         OLOG("Calculating inter-band correlation with %d slicing ...", slices);
+        for (int b = 0; b < MSS_BANDS; ++b) {
+            mBandShift[b] = new InterBandShift[slices];
+        }
 
         int baseRows = std::min((int)mLinesPAN, CORRELATION_LINES);
-        cv::Mat baseImage(baseRows, PIXELS_PER_LINE / slices, CV_16U, mImagePAN.get() + PIXELS_PER_LINE * (mLinesPAN - baseRows) / 2);
-        scoped_ptr<uint16_t> scaledMssBuffer = new uint16_t[PIXELS_PER_LINE * mLinesPAN];
-        scoped_ptr<InterBandShift> bandShifts[MSS_BANDS];
-        for (int b = 0; b < MSS_BANDS; ++b) {
-            OLOG("Calculating inter-band correlation of BAND%d ...", b);
-            bandShifts[b] = CalcInterBandCorrelation(baseImage, scaledMssBuffer, b, slices);
+        int baseRowGap = ((int)mLinesPAN - baseRows) / 2;
+        int baseSliceCols = PIXELS_PER_LINE / slices;
+        nc::NdArray<uint16_t> baseImage16U(mImagePAN.get(), (int)mLinesPAN, PIXELS_PER_LINE, false);
+        for (int i = 0; i < slices; ++i)
+        {
+            auto baseSlice16U = baseImage16U(nc::Slice(baseRowGap, baseRowGap + baseRows), nc::Slice(i * baseSliceCols, (i + 1) * baseSliceCols));
+            auto baseSlice32F = baseSlice16U.astype<float>();
+            cv::Mat baseMat32F(baseRows, baseSliceCols, CV_32FC1, baseSlice32F.data());
             
+            int bandRows = baseRows / MSS_BANDS;
+            int bandRowGap = baseRowGap / MSS_BANDS;
+            int bandSliceCols = baseSliceCols / MSS_BANDS;
+            
+            for (int b = 0; b < MSS_BANDS; ++b) {
+                OLOG("Calculating inter-band correlation of BAND%d ...", b);
+                nc::NdArray<uint16_t> band16U(mImageBandMSS[b].get(), (int)mLinesMSS, PIXELS_PER_LINE / MSS_BANDS, false);
+                auto bandSlice16U = band16U(nc::Slice(bandRowGap, bandRowGap + bandRows),
+                                            nc::Slice(i * bandSliceCols, (i + 1) * bandSliceCols));
+                auto bandSlice32F = bandSlice16U.astype<float>();
+                cv::Mat scaledBandSlice32F;
+                cv::resize(cv::Mat(bandRows, bandSliceCols, CV_32FC1, bandSlice32F.data())
+                           , scaledBandSlice32F
+                           , cv::Size(0, 0)
+                           , (double)MSS_BANDS
+                           , (double)MSS_BANDS
+                           , cv::INTER_CUBIC);
+                
+                double res = 0.0;
+                cv::Point2d rv = cv::phaseCorrelate(baseMat32F, scaledBandSlice32F, cv::noArray(), &res);
+                InterBandShift & shift = mBandShift[b][i];
+                shift.dx = rv.x;
+                shift.dy = rv.y;
+                shift.rs = res;
+                shift.cx = i * baseSliceCols + baseSliceCols / 2;
+            }
+        }
+        
+        OLOG("Inter-band correlation finished, try polynomial fitting ...");
+        
+        for (int b = 0; b < MSS_BANDS; ++b) {
             // x拟合为直线，y拟合为二次曲线
             OLOG("Doing polynomial fitting for BAND %d ...", b);
             std::vector<double> cxvals;
             std::vector<double> xvals;
             std::vector<double> yvals;
             for (int i = 0; i < slices; ++i) {
-                const InterBandShift & ibs = bandShifts[b][i];
+                const InterBandShift & ibs = mBandShift[b][i];
                 cxvals.push_back((double)ibs.cx);
                 xvals.push_back(ibs.dx);
                 yvals.push_back(ibs.dy);
@@ -176,13 +212,13 @@ public:
             mDeltaYcoeffs[b][1] = coeffsY[1];
             mDeltaYcoeffs[b][2] = coeffsY[2];
         }
+        OLOG("Polynomial fitting done.");
         
         if (autoUnloadPAN) {
             OLOG("Unloading PAN raw image data ...");
             UnloadPAN();
             OLOG("Unloaded.");
         }
-        
         OLOG("CalcInterBandCorrelation(): done.");
     }
     
@@ -221,25 +257,6 @@ protected:
         return outputFilePath.string();
     }
     
-    InterBandShift * CalcInterBandCorrelation(const cv::Mat& baseImage, uint16_t * scaledBandBuffer, int bandIndex, int slices) {
-        uint16_t * bandImage = mImageBandMSS[bandIndex];
-        scoped_ptr<uint16_t> scaled = UpscaleMssBand(bandImage, PIXELS_PER_LINE/MSS_BANDS, (int)mLinesMSS);
-        
-        scoped_ptr<InterBandShift> bandShifts = new InterBandShift[slices];
-        for (int i = 0; i < slices; ++i) {
-            scoped_ptr<uint16_t> slice = CopyVerticalSplittedBufferSlice(scaled, PIXELS_PER_LINE, (int)mLinesPAN, slices, i);
-            cv::Mat comparingImage(baseImage.rows, baseImage.cols, CV_16U, slice.get() + PIXELS_PER_LINE * (mLinesPAN - baseImage.rows) / 2);
-            double res = 0.0;
-            cv::Point2d rv = cv::phaseCorrelate(baseImage, comparingImage, cv::noArray(), &res);
-            InterBandShift & shift = bandShifts[i];
-            shift.dx = rv.x;
-            shift.dy = rv.y;
-            shift.rs = res;
-            shift.cx = i * baseImage.cols + baseImage.cols / 2;
-        }
-        return bandShifts.detach();
-    }
-    
     static uint16_t * CopyVerticalSplittedBufferSlice(const uint16_t * buffer, int w, int h, int slices, int sliceIndex) {
         int sliceW = w / slices;
         scoped_ptr<uint16_t> slice = new uint16_t[(size_t)sliceW * h];
@@ -249,16 +266,6 @@ protected:
         }
         
         return slice.detach();
-    }
-    
-    uint16_t * UpscaleMssBand(uint16_t * band, int w, int h, int scaleX = 4, int scaleY = 4) {
-        scoped_ptr<uint16_t> scaled = new uint16_t[(size_t)w * scaleX * h * scaleY];
-        
-        cv::Mat bandImage((int)mLinesMSS, PIXELS_PER_LINE/MSS_BANDS, CV_16U, band);
-        cv::Mat scaledImage((int)mLinesPAN, PIXELS_PER_LINE, CV_16U, scaled.get());
-        cv::resize(bandImage, scaledImage, cv::Size(0, 0), scaleX, scaleY, cv::INTER_CUBIC);
-        
-        return scaled.detach();
     }
     
     void InplaceRRC(uint16_t * buff, int w, int h, const RRCParam * rrcParam) {
@@ -424,7 +431,7 @@ private:
     size_t mLinesPAN;
     size_t mLinesMSS;
     
-    InterBandShift mBandShift[MSS_BANDS];
+    scoped_ptr<InterBandShift> mBandShift[MSS_BANDS];
     scoped_ptr<uint16_t> mImagePAN;
     scoped_ptr<uint16_t> mImageBandMSS[MSS_BANDS];
     scoped_ptr<uint16_t> mAlignedMSS;

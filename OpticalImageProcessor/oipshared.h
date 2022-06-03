@@ -50,6 +50,7 @@
 #define TASKKEY_IBCSLCS "IBCOR_SLICES"
 
 #define DEFAULT_IBCSLCS 10
+#define MINIMUM_IBCSLCS 8
 
 #define BEGIN_NS(ns) namespace ns {
 #define END_NS }
