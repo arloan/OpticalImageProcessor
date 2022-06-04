@@ -58,40 +58,53 @@ public:
     void LoadPAN() {
         OLOG("Reading PAN raw file content from `%s' ...", mPanFile.c_str());
         off_t size = 0;
+        stop_watch::rst();
         mImagePAN = (uint16_t *)ReadFileContent(mPanFile.c_str(), size);
         if (size != mSizePAN) {
             throw std::runtime_error(xs("PAN file size(%lld) doesn't match with read byte count(%lld)", mSizePAN, size).s);
         }
-        OLOG("ReadPAN(): %lld bytes read.", size);
+        auto es = stop_watch::tik().ellapsed;
+        OLOG("ReadPAN(): %s bytes read in %s seconds (%s MBps).",
+             comma_sep(size).sep(),
+             comma_sep(es).sep(),
+             comma_sep(size/es/1024.0/1024.0).sep());
     }
     
     void LoadMSS() {
         OLOG("Reading MSS raw file content from `%s' ...", mMssFile.c_str());
         
         off_t size = 0;
+        stop_watch::rst();
         scoped_ptr<uint16_t> mssMixed = (uint16_t *)ReadFileContent(mMssFile.c_str(), size);
         if (size != mSizeMSS) {
             throw std::runtime_error(xs("MSS file size(%lld) doesn't match with read byte count(%lld)", mSizeMSS, size).s);
         }
-        OLOG("ReadMSS(): %lld bytes read.", size);
+        auto es = stop_watch::tik().ellapsed;
+        OLOG("ReadMSS(): %s bytes read in %s seconds (%s MBps).",
+             comma_sep(size).sep(),
+             comma_sep(es).sep(),
+             comma_sep(size/es/1024.0/1024.0).sep());
         
         // split MSS 4 bands
         OLOG("ReadMSS(): splitting %d bands ...", MSS_BANDS);
-        int lineBytes = PIXELS_PER_LINE * BYTES_PER_PIXEL;
-        int bandBytesPerLine = lineBytes / MSS_BANDS;
+        int bandBytesPerLine = PIXELS_PER_LINE * BYTES_PER_PIXEL / MSS_BANDS;
         int bandPixelsPerLine = PIXELS_PER_LINE / MSS_BANDS; // MSS_BANDS: should always divisible by PIXELS_PER_LINE
         for (int i = 0; i < MSS_BANDS; ++i) {
-            mImageBandMSS[i].attach(new uint16_t[mPixelsMSS / MSS_BANDS]); // obsolte: `+1' for in case of indivisible
+            mImageBandMSS[i].attach(new uint16_t[mSizeMSS / MSS_BANDS]); // obsolte: `+1' for in case of indivisible
         }
+        
+        stop_watch::rst();
         for (size_t i = 0; i < mLinesMSS; ++i) {
             for (int b = 0; b < MSS_BANDS; ++b) {
-                memcpy(mImageBandMSS[b].get() + i * PIXELS_PER_LINE,
+                memcpy(mImageBandMSS[b].get() + i * bandPixelsPerLine,
                        mssMixed.get() + i * PIXELS_PER_LINE + b * bandPixelsPerLine,
                        bandBytesPerLine);
             }
         }
-        
-        OLOG("ReadMSS(): splitting OK.");
+        es = stop_watch::tik().ellapsed;
+        OLOG("ReadMSS(): split done in %s seconds (%s MBps).",
+             comma_sep(es).sep(),
+             comma_sep(size/es/1024.0/1024.0).sep());
     }
     
     void UnloadPAN() {
@@ -104,13 +117,48 @@ public:
         mAlignedMSS.attach(NULL);
     }
     
+    void WriteRRCedPAN() {
+        OLOG("Writing RRC-ed PAN image as RAW file ...");
+        
+        auto saveFilePath = BuildOutputFilePath(mPanFile, ".RRC");
+        stop_watch::rst();
+        WriteBufferToFile((const char *)mImagePAN.get(), mSizePAN, saveFilePath);
+        auto es = stop_watch::tik().ellapsed;
+        
+        OLOG("Written to file [%s].", saveFilePath.c_str());
+        OLOG("Writing cost %s seconds (%s MBps).",
+             comma_sep(es).sep(),
+             comma_sep(mSizePAN/es/1024.0/1024.0).sep());
+    }
+    
+    void WriteRRCedMSS() {
+        OLOG("Writing RRC-ed PAN image as RAW file ...");
+        
+        for (int b = 0; b < MSS_BANDS; ++b) {
+            auto saveFilePath = BuildOutputFilePath(mMssFile, xs(".RRCB%d", b));
+            stop_watch::rst();
+            WriteBufferToFile((const char *)mImageBandMSS[b].get(), mSizeMSS / MSS_BANDS, saveFilePath);
+            auto es = stop_watch::tik().ellapsed;
+            
+            OLOG("Written to file [%s].", saveFilePath.c_str());
+            OLOG("Writing cost %s seconds (%s MBps).",
+                 comma_sep(es).sep(),
+                 comma_sep(mSizeMSS/MSS_BANDS/es/1024.0/1024.0).sep());
+        }
+    }
+    
     void WriteAlignedMSS_RAW() {
         OLOG("Writing aligned MSS image as RAW file ...");
         
         auto saveFilePath = BuildOutputFilePath(mMssFile, ".IBCOR");
-        WriteBufferToFile((const char *)mAlignedMSS.get(), mLinesMSS * PIXELS_PER_LINE * BYTES_PER_PIXEL, saveFilePath);
+        stop_watch::rst();
+        WriteBufferToFile((const char *)mAlignedMSS.get(), mSizeMSS, saveFilePath);
+        auto es = stop_watch::tik().ellapsed;
         
         OLOG("Written to file [%s].", saveFilePath.c_str());
+        OLOG("Writing cost %s seconds (%s MBps).",
+             comma_sep(es).sep(),
+             comma_sep(mSizeMSS/es/1024.0/1024.0).sep());
     }
     
     void WriteAlignedMSS_TIFF() {
@@ -118,11 +166,17 @@ public:
         
         auto saveFilePath = BuildOutputFilePath(mMssFile, ".ALIGNED", ".TIFF");
         cv::Mat imageData((int)mLinesMSS, PIXELS_PER_LINE, CV_16U, mAlignedMSS.get());
+        
+        stop_watch::rst();
         if (!cv::imwrite(saveFilePath, imageData)) {
             throw std::runtime_error("Writing/converting MSS image as TIFF failed");
         }
+        auto es = stop_watch::tik().ellapsed;
         
         OLOG("Written to file [%s].", saveFilePath.c_str());
+        OLOG("Writing cost %s seconds (%s MBps).",
+             comma_sep(es).sep(),
+             comma_sep(mSizeMSS/es/1024.0/1024.0).sep());
     }
     
     // Relative radiation correction
@@ -134,14 +188,23 @@ public:
 
         // 1. PAN image RRC
         OLOG("Begin inplace RRC for PAN data ... ");
+        stop_watch::rst();
         InplaceRRC(mImagePAN.get(), PIXELS_PER_LINE, (int)mLinesPAN, mRRCParamPAN);
-        OLOG("RRC for PAN done.");
-        
+        auto es = stop_watch::tik().ellapsed;
+        OLOG("RRC for PAN done in %s seconds (%s MBps).",
+             comma_sep(es).sep(),
+             comma_sep(mSizePAN/es/1024.0/1024.0).sep());
+
         // 2. MSS image RRC
         for (int i = 0; i < MSS_BANDS; ++i) {
             OLOG("Begin inplace RRC for MSS band %d ... ", i);
+            stop_watch::rst();
             InplaceRRC(mImageBandMSS[i].get(), PIXELS_PER_LINE / MSS_BANDS, (int)mLinesMSS, mRRCParamMSS[i]);
-            OLOG("RRC done for MSS band %d.", i);
+            es = stop_watch::tik().ellapsed;
+            OLOG("RRC done for MSS band %d in %s seconds (%s MBps).",
+                 i,
+                 comma_sep(es).sep(),
+                 comma_sep(mSizeMSS/MSS_BANDS/es/1024.0/1024.0).sep());
         }
     }
     
@@ -155,36 +218,78 @@ public:
             mBandShift[b] = new InterBandShift[slices];
         }
 
+        double es = 0.0;
         int baseRows = std::min((int)mLinesPAN, CORRELATION_LINES);
         int baseRowGap = ((int)mLinesPAN - baseRows) / 2;
         int baseSliceCols = PIXELS_PER_LINE / slices;
+        size_t sliceBytes = (size_t)baseRows * baseSliceCols * BYTES_PER_PIXEL;
         nc::NdArray<uint16_t> baseImage16U(mImagePAN.get(), (int)mLinesPAN, PIXELS_PER_LINE, false);
         for (int i = 0; i < slices; ++i)
         {
+            OLOG("Extracting #%d slice from PAN image as base slice ...", i);
+            stop_watch::rst();
             auto baseSlice16U = baseImage16U(nc::Slice(baseRowGap, baseRowGap + baseRows), nc::Slice(i * baseSliceCols, (i + 1) * baseSliceCols));
+            es = stop_watch::tik().ellapsed;
+            OLOG("Extraction done in %s seconds (%s MBps).",
+                 comma_sep(es).sep(),
+                 comma_sep(sliceBytes/es/1024.0/1024.0).sep());
+
+            stop_watch::rst();
             auto baseSlice32F = baseSlice16U.astype<float>();
+            es = stop_watch::tik().ellapsed;
+            OLOG("Converting base slice from Uint16 to Float32 elements in %s seconds (%s MBps).",
+                 comma_sep(es).sep(),
+                 comma_sep(sliceBytes/es/1024.0/1024.0).sep());
+
             cv::Mat baseMat32F(baseRows, baseSliceCols, CV_32FC1, baseSlice32F.data());
             
             int bandRows = baseRows / MSS_BANDS;
             int bandRowGap = baseRowGap / MSS_BANDS;
             int bandSliceCols = baseSliceCols / MSS_BANDS;
-            
+            size_t bandSliceBytes = sliceBytes / MSS_BANDS / MSS_BANDS;
             for (int b = 0; b < MSS_BANDS; ++b) {
                 OLOG("Calculating inter-band correlation of BAND%d ...", b);
                 nc::NdArray<uint16_t> band16U(mImageBandMSS[b].get(), (int)mLinesMSS, PIXELS_PER_LINE / MSS_BANDS, false);
+                
+                OLOG("Extracting #%d slice from #%d band of MSS image ...", i, b);
+                stop_watch::rst();
                 auto bandSlice16U = band16U(nc::Slice(bandRowGap, bandRowGap + bandRows),
                                             nc::Slice(i * bandSliceCols, (i + 1) * bandSliceCols));
+                es = stop_watch::tik().ellapsed;
+                OLOG("Extraction done in %s seconds (%s MBps).",
+                     comma_sep(es).sep(),
+                     comma_sep(bandSliceBytes/es/1024.0/1024.0).sep());
+
+                stop_watch::rst();
                 auto bandSlice32F = bandSlice16U.astype<float>();
+                es = stop_watch::tik().ellapsed;
+                OLOG("Converting base slice from Uint16 to Float32 elements in %s seconds (%s MBps).",
+                     comma_sep(es).sep(),
+                     comma_sep(bandSliceBytes/es/1024.0/1024.0).sep());
+                
+                OLOG("Upscaling slice of MSS band image to the size of base slice image ...");
                 cv::Mat scaledBandSlice32F;
+                stop_watch::rst();
                 cv::resize(cv::Mat(bandRows, bandSliceCols, CV_32FC1, bandSlice32F.data())
                            , scaledBandSlice32F
                            , cv::Size(0, 0)
                            , (double)MSS_BANDS
                            , (double)MSS_BANDS
                            , cv::INTER_CUBIC);
-                
+                es = stop_watch::tik().ellapsed;
+                OLOG("Upscaling done in %s seconds (%s MBps).",
+                     comma_sep(es).sep(),
+                     comma_sep(bandSliceBytes/es/1024.0/1024.0).sep());
+
+                OLOG("Calculating phase correlation of slice #%d for band #%d ...", i, b);
                 double res = 0.0;
+                stop_watch::rst();
                 cv::Point2d rv = cv::phaseCorrelate(baseMat32F, scaledBandSlice32F, cv::noArray(), &res);
+                es = stop_watch::tik().ellapsed;
+                OLOG("Calculating done in %s seconds (%s MBps).",
+                     comma_sep(es).sep(),
+                     comma_sep(sliceBytes/es/1024.0/1024.0).sep());
+                
                 InterBandShift & shift = mBandShift[b][i];
                 shift.dx = rv.x;
                 shift.dy = rv.y;
@@ -193,8 +298,22 @@ public:
             }
         }
         
-        OLOG("Inter-band correlation finished, try polynomial fitting ...");
-        
+        OLOG("Inter-band correlation finished, result:");
+        for (int b = 0; b < MSS_BANDS; ++b) {
+            OLOG("BAND %d:", b);
+            auto shifts = mBandShift[b];
+            OLOGNEL("    |");
+            for (int i = 0; i < slices; ++i) {
+                OLOGNEL("% 5d=(x:%8.3f, y:% 8.3f, r:% 8.3f) | "
+                        , shifts[i].cx
+                        , shifts[i].dx
+                        , shifts[i].dy
+                        , shifts[i].rs);
+            }
+            OLOG("");
+        }
+
+        OLOG("Try polynomial fitting ...");
         for (int b = 0; b < MSS_BANDS; ++b) {
             // x拟合为直线，y拟合为二次曲线
             OLOG("Doing polynomial fitting for BAND %d ...", b);
@@ -223,6 +342,7 @@ public:
         }
         OLOG("Polynomial fitting done.");
         
+        
         if (autoUnloadPAN) {
             OLOG("Unloading PAN raw image data ...");
             UnloadPAN();
@@ -233,8 +353,9 @@ public:
     
     void DoInterBandAlignment(bool autoUnloadRawMSS = true) {
         OLOG("Doing inter-band alignment ...");
-        mAlignedMSS = new uint16_t[mLinesMSS * PIXELS_PER_LINE];
+        mAlignedMSS = new uint16_t[mSizeMSS];
         int pixelPerBand = PIXELS_PER_LINE / MSS_BANDS;
+        stop_watch::rst();
         for (int x = 0; x < PIXELS_PER_LINE; ++x) {
             for (size_t y = 0; y < mLinesMSS; ++y) {
                 int band = x / pixelPerBand;
@@ -253,6 +374,11 @@ public:
                 mAlignedMSS[destIdx] = bandImage[srcIdx];
             }
         }
+        auto es = stop_watch::tik().ellapsed;
+        OLOG("Alignment done in %s seconds (%s MBps).",
+             comma_sep(es).sep(),
+             comma_sep(mSizeMSS/es/1024.0/1024.0).sep());
+        
         if (autoUnloadRawMSS) {
             OLOG("Unloading MSS (unaligned & band-split) raw image data ...");
             UnloadMSS();
@@ -276,11 +402,11 @@ protected:
 //    static uint16_t * CopyVerticalSplitBufferSlice(const uint16_t * buffer, int w, int h, int slices, int sliceIndex) {
 //        int sliceW = w / slices;
 //        scoped_ptr<uint16_t> slice = new uint16_t[(size_t)sliceW * h];
-//        
+//
 //        for (size_t i = 0; i < h; ++i) {
 //            memcpy(slice.get() + i * sliceW, buffer + i * w + sliceIndex * sliceW, sliceW * sizeof(uint16_t));
 //        }
-//        
+//
 //        return slice.detach();
 //    }
     

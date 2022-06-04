@@ -64,6 +64,7 @@ struct FileDtor {
     inline void operator () (FILE * f) { fclose(f); }
 };
 
+#define OLOGNEL(fmt, ...) printf(fmt, ##__VA_ARGS__)
 #define OLOG(fmt, ...)  printf(fmt "\n", ##__VA_ARGS__)
 #ifdef DEBUG
 #define DLOG    OLOG

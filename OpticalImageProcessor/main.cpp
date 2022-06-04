@@ -26,7 +26,7 @@ struct InputParameters {
     int IBCOR_Slices;
 };
 
-InputParameters ips_ = { 0 };
+InputParameters ips_;
 
 void ParseTaskFile(const char * taskFile, InputParameters & ip) {
     scoped_ptr<FILE, FileDtor> f = fopen(taskFile, "rb");
@@ -96,10 +96,13 @@ int main(int argc, const char * argv[]) {
                         , ips_.RRCParaMSS);
         pp.LoadPAN();
         pp.LoadMSS();
+        
         pp.DoRRC();
+        pp.WriteRRCedPAN();
+        pp.WriteRRCedMSS();
+        
         pp.CalcInterBandCorrelation(ips_.IBCOR_Slices);
         pp.DoInterBandAlignment();
-        // pp.WriteAlignedMSS_RAW();
         pp.WriteAlignedMSS_TIFF();
         
         return 0;
