@@ -299,36 +299,34 @@ public:
         }
         
         OLOG("Inter-band correlation finished, result:");
-        for (int b = 0; b < MSS_BANDS; ++b) {
-            OLOG("BAND %d:", b);
-            auto shifts = mBandShift[b];
-            OLOGNEL("    |");
-            for (int i = 0; i < slices; ++i) {
-                OLOGNEL("% 5d=(x:%8.3f, y:% 8.3f, r:% 8.3f) | "
-                        , shifts[i].cx
-                        , shifts[i].dx
-                        , shifts[i].dy
-                        , shifts[i].rs);
-            }
-            OLOG("");
+        OLOG("|#SLC|Start|Center| End "
+             "|   B1.x   |   B2.x   |   B3.x   |   B4.x   "
+             "|   B1.y   |   B2.y   |   B3.y   |   B4.y   "
+             "|   B1.r   |   B2.r   |   B3.r   |   B4.r   |");
+        for (int i = 0; i < slices; ++i) {
+            OLOG("|%4d|%5d|%6d|%5d|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|"
+                 , i, i * baseSliceCols, mBandShift[0][i].cx, (i + 1) * baseSliceCols
+                 , mBandShift[0][i].dx, mBandShift[1][i].dx, mBandShift[2][i].dx, mBandShift[3][i].dx
+                 , mBandShift[0][i].dy, mBandShift[1][i].dy, mBandShift[2][i].dy, mBandShift[3][i].dy
+                 , mBandShift[0][i].rs, mBandShift[1][i].rs, mBandShift[2][i].rs, mBandShift[3][i].rs);
         }
 
         OLOG("Try polynomial fitting ...");
         for (int b = 0; b < MSS_BANDS; ++b) {
             // x拟合为直线，y拟合为二次曲线
             OLOG("Doing polynomial fitting for BAND %d ...", b);
-            std::vector<double> cxvals;
-            std::vector<double> xvals;
-            std::vector<double> yvals;
+            scoped_ptr<double> cxvals = new double[slices];
+            scoped_ptr<double> xvals  = new double[slices];
+            scoped_ptr<double> yvals  = new double[slices];
             for (int i = 0; i < slices; ++i) {
                 const InterBandShift & ibs = mBandShift[b][i];
-                cxvals.push_back((double)ibs.cx);
-                xvals.push_back(ibs.dx);
-                yvals.push_back(ibs.dy);
+                cxvals[i] = ibs.cx;
+                xvals [i] = ibs.dx;
+                yvals [i] = ibs.dy;
             }
-            nc::NdArray<double> cxValues(cxvals);
-            nc::NdArray<double> dXvalues(xvals);
-            nc::NdArray<double> dYvalues(yvals);
+            nc::NdArray<double> cxValues(cxvals, 1, slices, false);
+            nc::NdArray<double> dXvalues(xvals, slices, 1, false);
+            nc::NdArray<double> dYvalues(yvals, slices, 1, false);
             auto poly1dX = nc::polynomial::Poly1d<double>::fit(cxValues, dXvalues, 1);
             auto poly1dY = nc::polynomial::Poly1d<double>::fit(cxValues, dYvalues, 2);
             auto coeffsX = poly1dX.coefficients();
@@ -339,6 +337,10 @@ public:
             mDeltaYcoeffs[b][0] = coeffsY[0];
             mDeltaYcoeffs[b][1] = coeffsY[1];
             mDeltaYcoeffs[b][2] = coeffsY[2];
+            OLOG("\tdeltaX coeff: [1] %.4f, [0] %.4f",
+                 coeffsX[1], coeffsX[0]);
+            OLOG("\tdeltaY coeff: [2] %.4f, [1] %.4f, [0] %.4f",
+                 coeffsY[2], coeffsY[1], coeffsY[0]);
         }
         OLOG("Polynomial fitting done.");
         
@@ -354,24 +356,24 @@ public:
     void DoInterBandAlignment(bool autoUnloadRawMSS = true) {
         OLOG("Doing inter-band alignment ...");
         mAlignedMSS = new uint16_t[mSizeMSS];
-        int pixelPerBand = PIXELS_PER_LINE / MSS_BANDS;
+        int pixelPerBandLine = PIXELS_PER_LINE / MSS_BANDS;
         stop_watch::rst();
-        for (int x = 0; x < PIXELS_PER_LINE; ++x) {
+        for (int b = 0; b < MSS_BANDS; ++b) {
+            uint16_t * bandImage = mImageBandMSS[b];
+            auto coeffX = mDeltaXcoeffs[b];
+            auto coeffY = mDeltaYcoeffs[b];
             for (size_t y = 0; y < mLinesMSS; ++y) {
-                int band = x / pixelPerBand;
-                int xInBand = x % pixelPerBand;
-                uint16_t * bandImage = mImageBandMSS[band];
-                
-                auto coeffX = mDeltaXcoeffs[band];
-                auto coeffY = mDeltaYcoeffs[band];
-                double deltaX = coeffX[1] * xInBand + coeffX[0];
-                double deltaY = coeffY[2] * xInBand * xInBand + coeffY[1] * xInBand + coeffY[0];
-                int mapx = (int)(xInBand + deltaX);
-                int mapy = (int)(y + deltaY);
-                
-                size_t destIdx = y * PIXELS_PER_LINE + x;
-                size_t srcIdx = mapy * pixelPerBand + mapx;
-                mAlignedMSS[destIdx] = bandImage[srcIdx];
+                for (int x = 0; x < pixelPerBandLine; ++x) {
+                    // BUG BUG: mapx/mapy may exceed boundaries!!!
+                    double deltaX = coeffX[1] * x + coeffX[0];
+                    double deltaY = coeffY[2] * x * x + coeffY[1] * x + coeffY[0];
+                    int mapx = (int)(x + deltaX);
+                    int mapy = (int)(y + deltaY);
+                    
+                    size_t srcIdx = mapy * pixelPerBandLine + mapx;
+                    size_t destIdx = y * PIXELS_PER_LINE + b * pixelPerBandLine + x;
+                    mAlignedMSS[destIdx] = bandImage[srcIdx];
+                }
             }
         }
         auto es = stop_watch::tik().ellapsed;
@@ -411,8 +413,8 @@ protected:
 //    }
     
     void InplaceRRC(uint16_t * buff, int w, int h, const RRCParam * rrcParam) {
-        for (size_t x = 0; x < w; ++x) {
-            for (size_t y = 0; y < h; ++y) {
+        for (size_t y = 0; y < h; ++y) {
+            for (size_t x = 0; x < w; ++x) {
                 size_t idx = w * y + x;
                 uint16_t src = buff[idx];
                 uint16_t dst = (uint16_t)(rrcParam[x].k * src + rrcParam[x].b);
