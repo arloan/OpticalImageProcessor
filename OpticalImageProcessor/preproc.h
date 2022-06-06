@@ -299,58 +299,21 @@ public:
         }
         
         OLOG("Inter-band correlation finished, result:");
-        OLOG("|#SLC|Start|Center| End "
-             "|   B1.x   |   B2.x   |   B3.x   |   B4.x   "
-             "|   B1.y   |   B2.y   |   B3.y   |   B4.y   "
-             "|   B1.r   |   B2.r   |   B3.r   |   B4.r   |");
-        for (int i = 0; i < slices; ++i) {
-            OLOG("|%4d|%5d|%6d|%5d|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|"
-                 , i, i * baseSliceCols, mBandShift[0][i].cx, (i + 1) * baseSliceCols
-                 , mBandShift[0][i].dx, mBandShift[1][i].dx, mBandShift[2][i].dx, mBandShift[3][i].dx
-                 , mBandShift[0][i].dy, mBandShift[1][i].dy, mBandShift[2][i].dy, mBandShift[3][i].dy
-                 , mBandShift[0][i].rs, mBandShift[1][i].rs, mBandShift[2][i].rs, mBandShift[3][i].rs);
-        }
+        DumpInterBandShiftValues(slices);
+        OLOG("Filter invalid correlation values, result:");
+        FilterInterBandShiftValues(slices);
+        DumpInterBandShiftValues(slices);
 
         OLOG("Try polynomial fitting ...");
-        for (int b = 0; b < MSS_BANDS; ++b) {
-            // x拟合为直线，y拟合为二次曲线
-            OLOG("Doing polynomial fitting for BAND %d ...", b);
-            scoped_ptr<double> cxvals = new double[slices];
-            scoped_ptr<double> xvals  = new double[slices];
-            scoped_ptr<double> yvals  = new double[slices];
-            for (int i = 0; i < slices; ++i) {
-                const InterBandShift & ibs = mBandShift[b][i];
-                cxvals[i] = ibs.cx;
-                xvals [i] = ibs.dx;
-                yvals [i] = ibs.dy;
-            }
-            nc::NdArray<double> cxValues(cxvals, 1, slices, false);
-            nc::NdArray<double> dXvalues(xvals, slices, 1, false);
-            nc::NdArray<double> dYvalues(yvals, slices, 1, false);
-            auto poly1dX = nc::polynomial::Poly1d<double>::fit(cxValues, dXvalues, 1);
-            auto poly1dY = nc::polynomial::Poly1d<double>::fit(cxValues, dYvalues, 2);
-            auto coeffsX = poly1dX.coefficients();
-            auto coeffsY = poly1dY.coefficients();
-            
-            mDeltaXcoeffs[b][0] = coeffsX[0];
-            mDeltaXcoeffs[b][1] = coeffsX[1];
-            mDeltaYcoeffs[b][0] = coeffsY[0];
-            mDeltaYcoeffs[b][1] = coeffsY[1];
-            mDeltaYcoeffs[b][2] = coeffsY[2];
-            OLOG("\tdeltaX coeff: [1] %.4f, [0] %.4f",
-                 coeffsX[1], coeffsX[0]);
-            OLOG("\tdeltaY coeff: [2] %.4f, [1] %.4f, [0] %.4f",
-                 coeffsY[2], coeffsY[1], coeffsY[0]);
-        }
+        DoCorrelationPolynomialFitting(slices);
         OLOG("Polynomial fitting done.");
         
-        
+        OLOG("CalcInterBandCorrelation(): done.");
         if (autoUnloadPAN) {
             OLOG("Unloading PAN raw image data ...");
             UnloadPAN();
             OLOG("Unloaded.");
         }
-        OLOG("CalcInterBandCorrelation(): done.");
     }
     
     void DoInterBandAlignment(bool autoUnloadRawMSS = true) {
@@ -390,6 +353,80 @@ public:
     }
     
 protected:
+    void DumpInterBandShiftValues(int slices) {
+        OLOG("|#SLC|Start|Center| End "
+             "|   B1.x   |   B2.x   |   B3.x   |   B4.x   "
+             "|   B1.y   |   B2.y   |   B3.y   |   B4.y   "
+             "|   B1.r   |   B2.r   |   B3.r   |   B4.r   |");
+        int sliceCols = PIXELS_PER_LINE / slices;
+        for (int i = 0; i < slices; ++i) {
+            OLOG("|%4d|%5d|%6d|%5d|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|"
+                 , i, i * sliceCols, mBandShift[0][i].cx, (i + 1) * sliceCols
+                 , mBandShift[0][i].dx, mBandShift[1][i].dx, mBandShift[2][i].dx, mBandShift[3][i].dx
+                 , mBandShift[0][i].dy, mBandShift[1][i].dy, mBandShift[2][i].dy, mBandShift[3][i].dy
+                 , mBandShift[0][i].rs, mBandShift[1][i].rs, mBandShift[2][i].rs, mBandShift[3][i].rs);
+        }
+    }
+    
+    void FilterInterBandShiftValues(int slices) {
+        double nan = std::numeric_limits<double>::quiet_NaN();
+        for (int b = 0; b < MSS_BANDS; ++b) {
+            int fc = 0;
+            InterBandShift * shifts = mBandShift[b];
+            for (int i = 0; i < slices; ++i) {
+                if (shifts[i].rs < IBCV_SHRESHHOLD) {
+                    shifts[i].dx = nan;
+                    shifts[i].dy = nan;
+                } else {
+                    fc++;
+                }
+            }
+            if (fc < IBCV_MIN_COUNT) {
+                xs s("Not enough valid correlation values for band#%d: %d valid values found, %d expected at least",
+                     b, fc, IBCV_MIN_COUNT);
+                OLOG("%s.", s.s);
+                throw std::runtime_error(s.s);
+            }
+        }
+    }
+    
+    void DoCorrelationPolynomialFitting(int slices) {
+        for (int b = 0; b < MSS_BANDS; ++b) {
+            // x拟合为直线，y拟合为二次曲线
+            OLOG("Doing polynomial fitting for BAND %d ...", b);
+            int vvi = 0;
+            scoped_ptr<double> cxvals = new double[slices];
+            scoped_ptr<double> xvals  = new double[slices];
+            scoped_ptr<double> yvals  = new double[slices];
+            for (int i = 0; i < slices; ++i) {
+                const InterBandShift & ibs = mBandShift[b][i];
+                if (ibs.rs >= IBCV_SHRESHHOLD) {
+                    cxvals[vvi] = ibs.cx;
+                    xvals [vvi] = ibs.dx;
+                    yvals [vvi] = ibs.dy;
+                    ++vvi;
+                }
+            }
+            nc::NdArray<double> cxValues(cxvals, 1, vvi, false);
+            nc::NdArray<double> dXvalues(xvals, vvi, 1, false);
+            nc::NdArray<double> dYvalues(yvals, vvi, 1, false);
+            auto poly1dX = nc::polynomial::Poly1d<double>::fit(cxValues, dXvalues, 1);
+            auto poly1dY = nc::polynomial::Poly1d<double>::fit(cxValues, dYvalues, 2);
+            auto coeffsX = poly1dX.coefficients();
+            auto coeffsY = poly1dY.coefficients();
+            
+            mDeltaXcoeffs[b][0] = coeffsX[0];
+            mDeltaXcoeffs[b][1] = coeffsX[1];
+            mDeltaYcoeffs[b][0] = coeffsY[0];
+            mDeltaYcoeffs[b][1] = coeffsY[1];
+            mDeltaYcoeffs[b][2] = coeffsY[2];
+            OLOG("\tdeltaX coeff: [1] %.4f, [0] %.4f",
+                 coeffsX[1], coeffsX[0]);
+            OLOG("\tdeltaY coeff: [2] %.4f, [1] %.4f, [0] %.4f",
+                 coeffsY[2], coeffsY[1], coeffsY[0]);
+        }
+    }
+    
     std::string BuildOutputFilePath(const std::string & templatePath
                                     , const std::string & stemExtension
                                     , const char * replaceExtension = NULL) {

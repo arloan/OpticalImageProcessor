@@ -29,6 +29,8 @@
 #define MSS_BANDS           4
 #define PIXELS_PER_MSSSEC   (PIXELS_PER_LINE/MSS_SECTIONS)
 #define CORRELATION_LINES   16000
+#define IBCV_SHRESHHOLD     0.4 // valid Inter Band Correlation Value shreshhold
+#define IBCV_MIN_COUNT      5   // minimum IBC value count before polynomial fitting
 
 #define AN_PAN  "-pan:"
 #define AN_MSS  "-mss:"
