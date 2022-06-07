@@ -101,9 +101,10 @@ int main(int argc, const char * argv[]) {
         pp.WriteRRCedPAN();
         pp.WriteRRCedMSS();
         
+        int alignedRows = 20000;
         pp.CalcInterBandCorrelation(ips_.IBCOR_Slices);
-        pp.DoInterBandAlignment();
-        pp.WriteAlignedMSS_TIFF();
+        pp.DoInterBandAlignment(alignedRows, 3000);
+        pp.WriteAlignedMSS_TIFF(alignedRows);
         
         return 0;
     } catch (std::invalid_argument & ex) {

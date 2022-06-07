@@ -161,11 +161,12 @@ public:
              comma_sep(mSizeMSS/es/1024.0/1024.0).sep());
     }
     
-    void WriteAlignedMSS_TIFF() {
+    void WriteAlignedMSS_TIFF(int rows) {
         OLOG("Writing aligned MSS image as TIFF file ...");
         
         auto saveFilePath = BuildOutputFilePath(mMssFile, ".ALIGNED", ".TIFF");
-        cv::Mat imageData((int)mLinesMSS, PIXELS_PER_LINE, CV_16U, mAlignedMSS.get());
+        // cv::Mat imageData((int)mLinesMSS, PIXELS_PER_LINE, CV_16U, mAlignedMSS.get());
+        cv::Mat imageData(rows, PIXELS_PER_LINE, CV_16U, mAlignedMSS.get());
         
         stop_watch::rst();
         if (!cv::imwrite(saveFilePath, imageData)) {
@@ -316,34 +317,69 @@ public:
         }
     }
     
-    void DoInterBandAlignment(bool autoUnloadRawMSS = true) {
+    // TODO: opencv::remap does not support image data larger than 32767*32767, need further handling
+    // processing a portion of input image for now.
+    void DoInterBandAlignment(int rows, int rowOffset = 0, bool autoUnloadRawMSS = true) {
         OLOG("Doing inter-band alignment ...");
-        mAlignedMSS = new uint16_t[mSizeMSS];
-        int pixelPerBandLine = PIXELS_PER_LINE / MSS_BANDS;
+        
+        const int pixelPerBandLine = PIXELS_PER_LINE / MSS_BANDS;
+        mAlignedMSS = new uint16_t[PIXELS_PER_LINE * rows];
+        scoped_ptr<uint16_t> alignedBand = new uint16_t[pixelPerBandLine * rows];
+        scoped_ptr<float> mapX = new float[pixelPerBandLine * rows];
+        scoped_ptr<float> mapY = new float[pixelPerBandLine * rows];
+        
         stop_watch::rst();
         for (int b = 0; b < MSS_BANDS; ++b) {
-            uint16_t * bandImage = mImageBandMSS[b];
-            auto coeffX = mDeltaXcoeffs[b];
-            auto coeffY = mDeltaYcoeffs[b];
-            for (size_t y = 0; y < mLinesMSS; ++y) {
+            double * coeffX = mDeltaXcoeffs[b];
+            double * coeffY = mDeltaYcoeffs[b];
+            
+            OLOG("[BAND#%d] creating mapX & mapY matrix ...", b);
+            // (x, y) -> coordinates of MSS BAND sized image
+            // polinomial coeffective values are of PAN size image
+            // take (x', y') for coordinates of PAN, then x' = 4x, y' = 4y when BANDS=4
+            // mapX(x,y) = mapX'(x',y')/4, mapY(x,y) = mapY'(x',y')/4
+            // for (size_t y = 0; y < mLinesMSS; ++y) {
+            for (size_t y = 0; y < rows; ++y) {
                 for (int x = 0; x < pixelPerBandLine; ++x) {
-                    // BUG BUG: mapx/mapy may exceed boundaries!!!
-                    double deltaX = coeffX[1] * x + coeffX[0];
-                    double deltaY = coeffY[2] * x * x + coeffY[1] * x + coeffY[0];
-                    int mapx = (int)(x + deltaX);
-                    int mapy = (int)(y + deltaY);
-                    
-                    size_t srcIdx = mapy * pixelPerBandLine + mapx;
-                    size_t destIdx = y * PIXELS_PER_LINE + b * pixelPerBandLine + x;
-                    mAlignedMSS[destIdx] = bandImage[srcIdx];
+                    auto yy = y * MSS_BANDS;
+                    auto xx = x * MSS_BANDS;
+                    mapX[y * pixelPerBandLine + x] = (float)((coeffX[1] * xx + coeffX[0] + xx)/MSS_BANDS);
+                    mapY[y * pixelPerBandLine + x] = (float)((coeffY[2] * xx * xx + coeffY[1] * xx + coeffY[0] + yy)/MSS_BANDS);
                 }
             }
+            
+            OLOG("[BAND#%d] remapping band image ...", b);
+            cv::remap(cv::Mat(rows, pixelPerBandLine, CV_16U, mImageBandMSS[b].get() + rowOffset * pixelPerBandLine),
+                      cv::Mat(rows, pixelPerBandLine, CV_16U, alignedBand),
+                      cv::Mat(rows, pixelPerBandLine, CV_32FC1, mapX),
+                      cv::Mat(rows, pixelPerBandLine, CV_32FC1, mapY),
+                      cv::INTER_CUBIC, cv::BORDER_CONSTANT);
+
+            // 4debug
+            WriteBufferToFile((const char *)alignedBand.get(),
+                             pixelPerBandLine * rows * BYTES_PER_PIXEL,
+                             xs("AlignedBand_%d.raw", b));
+
+            OLOG("[BAND#%d] merge band image to final multi-band image ...", b);
+            // for (size_t y = 0; y < mLinesMSS; ++y) {
+            for (size_t y = 0; y < rows; ++y) {
+                memcpy(mAlignedMSS + y * PIXELS_PER_LINE + b * pixelPerBandLine,
+                       alignedBand + y * pixelPerBandLine,
+                       pixelPerBandLine * BYTES_PER_PIXEL);
+            }
+            OLOG("[BAND#%d] band remapping done.", b);
         }
+
         auto es = stop_watch::tik().ellapsed;
         OLOG("Alignment done in %s seconds (%s MBps).",
              comma_sep(es).sep(),
-             comma_sep(mSizeMSS/es/1024.0/1024.0).sep());
-        
+             comma_sep(PIXELS_PER_LINE*rows*BYTES_PER_PIXEL/es/1024.0/1024.0).sep());
+
+        // 4debug
+        // WriteBufferToFile((const char *)mAlignedMSS.get(),
+        //                  PIXELS_PER_LINE * rows * BYTES_PER_PIXEL,
+        //                  "AlignedMSS.raw");
+
         if (autoUnloadRawMSS) {
             OLOG("Unloading MSS (unaligned & band-split) raw image data ...");
             UnloadMSS();
@@ -420,9 +456,9 @@ protected:
             mDeltaYcoeffs[b][0] = coeffsY[0];
             mDeltaYcoeffs[b][1] = coeffsY[1];
             mDeltaYcoeffs[b][2] = coeffsY[2];
-            OLOG("\tdeltaX coeff: [1] %.4f, [0] %.4f",
+            OLOG("\tdeltaX coeff: [1] %.15f, [0] %.9f",
                  coeffsX[1], coeffsX[0]);
-            OLOG("\tdeltaY coeff: [2] %.4f, [1] %.4f, [0] %.4f",
+            OLOG("\tdeltaY coeff: [2] %.15f, [1] %.15f, [0] %.9f",
                  coeffsY[2], coeffsY[1], coeffsY[0]);
         }
     }
@@ -584,10 +620,10 @@ protected:
         scoped_ptr<FILE, FileDtor> f = fopen(saveFilePath.c_str(), "wb");
         if (f.isNull()) throw std::runtime_error(xs("open file [%s] failed: %", saveFilePath.c_str(), errno).s);
         
-        const int unit = (int)std::min((size_t)8 * 1024 * 1024, size); // 8MB
+        size_t unit = (int)std::min((size_t)8 * 1024 * 1024, size); // 8MB
         size_t written = 0;
         for (const char * p = buff; written < size; ) {
-            auto wb = fwrite(p, 1, unit, f);
+            auto wb = fwrite(p, 1, std::min(unit, size-written), f);
             if (wb == 0) throw std::runtime_error(xs("write file failed: %d, %lld bytes written so far", errno, written).s);
             written += wb;
             p += wb;
