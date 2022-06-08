@@ -98,8 +98,8 @@ int main(int argc, const char * argv[]) {
         pp.LoadMSS();
         
         pp.DoRRC();
-        pp.WriteRRCedPAN();
-        pp.WriteRRCedMSS();
+        //pp.WriteRRCedPAN();
+        //pp.WriteRRCedMSS();
         
         int alignedRows = 20000;
         pp.CalcInterBandCorrelation(ips_.IBCOR_Slices);

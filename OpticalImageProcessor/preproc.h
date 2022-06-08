@@ -114,7 +114,8 @@ public:
         for (int i = 0; i < MSS_BANDS; ++i) mImageBandMSS[i].attach(NULL);
     }
     void FreeAlignedMSS() {
-        mAlignedMSS.attach(NULL);
+        //mAlignedMSS.attach(NULL);
+        mAlignedMSS.release();
     }
     
     void WriteRRCedPAN() {
@@ -152,7 +153,8 @@ public:
         
         auto saveFilePath = BuildOutputFilePath(mMssFile, ".IBCOR");
         stop_watch::rst();
-        WriteBufferToFile((const char *)mAlignedMSS.get(), mSizeMSS, saveFilePath);
+        //WriteBufferToFile((const char *)mAlignedMSS.get(), mSizeMSS, saveFilePath);
+        WriteBufferToFile((const char *)mAlignedMSS.data, mSizeMSS, saveFilePath);
         auto es = stop_watch::tik().ellapsed;
         
         OLOG("Written to file [%s].", saveFilePath.c_str());
@@ -166,7 +168,8 @@ public:
         
         auto saveFilePath = BuildOutputFilePath(mMssFile, ".ALIGNED", ".TIFF");
         // cv::Mat imageData((int)mLinesMSS, PIXELS_PER_LINE, CV_16U, mAlignedMSS.get());
-        cv::Mat imageData(rows, PIXELS_PER_LINE, CV_16U, mAlignedMSS.get());
+        // cv::Mat imageData(rows, PIXELS_PER_LINE, CV_16U, mAlignedMSS.get());
+        cv::Mat & imageData = mAlignedMSS;
         
         stop_watch::rst();
         if (!cv::imwrite(saveFilePath, imageData)) {
@@ -323,8 +326,9 @@ public:
         OLOG("Doing inter-band alignment ...");
         
         const int pixelPerBandLine = PIXELS_PER_LINE / MSS_BANDS;
-        mAlignedMSS = new uint16_t[PIXELS_PER_LINE * rows];
-        scoped_ptr<uint16_t> alignedBand = new uint16_t[pixelPerBandLine * rows];
+        //mAlignedMSS = new uint16_t[PIXELS_PER_LINE * rows];
+        //scoped_ptr<uint16_t> alignedBand = new uint16_t[pixelPerBandLine * rows];
+        cv::Mat alignedBands[MSS_BANDS];
         scoped_ptr<float> mapX = new float[pixelPerBandLine * rows];
         scoped_ptr<float> mapY = new float[pixelPerBandLine * rows];
         
@@ -350,16 +354,18 @@ public:
             
             OLOG("[BAND#%d] remapping band image ...", b);
             cv::remap(cv::Mat(rows, pixelPerBandLine, CV_16U, mImageBandMSS[b].get() + rowOffset * pixelPerBandLine),
-                      cv::Mat(rows, pixelPerBandLine, CV_16U, alignedBand),
+                      // cv::Mat(rows, pixelPerBandLine, CV_16U, alignedBand),
+                      alignedBands[b],
                       cv::Mat(rows, pixelPerBandLine, CV_32FC1, mapX),
                       cv::Mat(rows, pixelPerBandLine, CV_32FC1, mapY),
                       cv::INTER_CUBIC, cv::BORDER_CONSTANT);
 
             // 4debug
-            WriteBufferToFile((const char *)alignedBand.get(),
-                             pixelPerBandLine * rows * BYTES_PER_PIXEL,
-                             xs("AlignedBand_%d.raw", b));
+            // WriteBufferToFile((const char *)alignedBand.get(),
+            //                 pixelPerBandLine * rows * BYTES_PER_PIXEL,
+            //                 xs("AlignedBand_%d.raw", b));
 
+            /*//
             OLOG("[BAND#%d] merge band image to final multi-band image ...", b);
             // for (size_t y = 0; y < mLinesMSS; ++y) {
             for (size_t y = 0; y < rows; ++y) {
@@ -367,8 +373,13 @@ public:
                        alignedBand + y * pixelPerBandLine,
                        pixelPerBandLine * BYTES_PER_PIXEL);
             }
+            //*/
             OLOG("[BAND#%d] band remapping done.", b);
         }
+        
+        OLOG("Merging all image bands into a single multi-channel image ...");
+        cv::merge(alignedBands, MSS_BANDS, mAlignedMSS);
+        OLOG("Merged.");
 
         auto es = stop_watch::tik().ellapsed;
         OLOG("Alignment done in %s seconds (%s MBps).",
@@ -651,7 +662,8 @@ private:
     scoped_ptr<InterBandShift> mBandShift[MSS_BANDS];
     scoped_ptr<uint16_t> mImagePAN;
     scoped_ptr<uint16_t> mImageBandMSS[MSS_BANDS];
-    scoped_ptr<uint16_t> mAlignedMSS;
+    //scoped_ptr<uint16_t> mAlignedMSS;
+    cv::Mat mAlignedMSS;
     
     double mDeltaXcoeffs[MSS_BANDS][2];
     double mDeltaYcoeffs[MSS_BANDS][3];
