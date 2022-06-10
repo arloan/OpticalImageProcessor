@@ -27,20 +27,10 @@
 #define BYTES_PER_PIXEL     2       // Little Endian
 #define PIXELS_PER_LINE     12288
 #define MSS_BANDS           4
-#define PIXELS_PER_MSSSEC   (PIXELS_PER_LINE/MSS_SECTIONS)
+#define PIXELS_PER_MSSBAND  (PIXELS_PER_LINE/MSS_BANDS)
 #define CORRELATION_LINES   16000
 #define IBCV_SHRESHHOLD     0.4 // valid Inter Band Correlation Value shreshhold
 #define IBCV_MIN_COUNT      5   // minimum IBC value count before polynomial fitting
-
-#define AN_PAN  "-pan:"
-#define AN_MSS  "-mss:"
-#define AN_RRC  "-rrc:"
-#define NPAN    (sizeof(AN_PAN)-1)
-#define NMSS    (sizeof(AN_MSS)-1)
-#define NRRC    (sizeof(AN_RRC)-1)
-
-#define AN_TASK "-task:"
-#define NTASK   (sizeof(AN_TASK)-1)
 
 #define TASKKEY_PAN     "PAN"
 #define TASKKEY_MSS     "MSS"
@@ -53,6 +43,11 @@
 
 #define DEFAULT_IBCSLCS 10
 #define MINIMUM_IBCSLCS 8
+#define IBPA_DEFAULT_LINEOFFSET     0
+#define IBPA_DEFAULT_BATCHLINES     20000
+#define IBPA_DEFAULT_LINEOVERLAP    500
+#define IBPA_MAX_LINEOVERLAP        3000
+#define IBPA_MIN_PROCESSLINES       1500
 
 #define BEGIN_NS(ns) namespace ns {
 #define END_NS }

@@ -163,10 +163,10 @@ public:
              comma_sep(mSizeMSS/es/1024.0/1024.0).sep());
     }
     
-    void WriteAlignedMSS_TIFF(int rows) {
+    void WriteAlignedMSS_TIFF(int rows, int section) {
         OLOG("Writing aligned MSS image as TIFF file ...");
         
-        auto saveFilePath = BuildOutputFilePath(mMssFile, ".ALIGNED", ".TIFF");
+        auto saveFilePath = BuildOutputFilePath(mMssFile, xs(".SEC%d", section), ".TIFF");
         // cv::Mat imageData((int)mLinesMSS, PIXELS_PER_LINE, CV_16U, mAlignedMSS.get());
         // cv::Mat imageData(rows, PIXELS_PER_LINE, CV_16U, mAlignedMSS.get());
         cv::Mat & imageData = mAlignedMSS;
@@ -322,17 +322,67 @@ public:
     
     // TODO: opencv::remap does not support image data larger than 32767*32767, need further handling
     // processing a portion of input image for now.
-    void DoInterBandAlignment(int rows, int rowOffset = 0, bool autoUnloadRawMSS = true) {
+    void DoInterBandAlignment(int linePerSection, int lineOffset = 0,
+                              int sectionOverlap = IBPA_DEFAULT_LINEOVERLAP,
+                              bool autoUnloadRawMSS = true) {
+        if (sectionOverlap > IBPA_MAX_LINEOVERLAP) {
+            throw std::invalid_argument(xs("Overlap value %d exceeds maximum allowed value(%d)"
+                                           , sectionOverlap, IBPA_MAX_LINEOVERLAP).s);
+        }
+        if (linePerSection > 32767) {
+            throw std::invalid_argument("Row number exceeds OpenCV allowd value");
+        }
+        if (linePerSection < sectionOverlap * 2) {
+            throw std::invalid_argument("Lines per section too small or section overlapped lines too large");
+        }
+        if (mLinesMSS - lineOffset < IBPA_MIN_PROCESSLINES) {
+            throw std::invalid_argument("Too few image lines left to process");
+        }
+        
         OLOG("Doing inter-band alignment ...");
         
-        const int pixelPerBandLine = PIXELS_PER_LINE / MSS_BANDS;
-        //mAlignedMSS = new uint16_t[PIXELS_PER_LINE * rows];
-        //scoped_ptr<uint16_t> alignedBand = new uint16_t[pixelPerBandLine * rows];
-        cv::Mat alignedBands[MSS_BANDS];
-        scoped_ptr<float> mapX = new float[pixelPerBandLine * rows];
-        scoped_ptr<float> mapY = new float[pixelPerBandLine * rows];
-        
+        size_t bytes = 0;
+        size_t offset = lineOffset;
+        int sections = (int)((mLinesMSS - lineOffset) / (linePerSection - sectionOverlap)) + 1;
         stop_watch::rst();
+        
+        for (int i = 0; ; ++i) {
+            auto lines = std::min(mLinesMSS - offset, (size_t)linePerSection);
+            if (mLinesMSS < offset || lines < IBPA_MIN_PROCESSLINES) break;
+            
+            OLOG("[SEC%d] %s lines for processing [offset=%s]."
+                 , i+1
+                 , comma_sep(lines).sep()
+                 , comma_sep(offset).sep());
+            
+            
+            OLOG("Doing inter-band alignment of section %d/%d ...", i+1, sections);
+            DoInterBandAlignment(i+1, offset, (int)lines);
+            OLOG("");
+            
+            bytes += (size_t)lines * PIXELS_PER_MSSBAND * BYTES_PER_PIXEL;
+            offset += linePerSection - sectionOverlap;
+        }
+        
+        auto es = stop_watch::tik().ellapsed;
+        OLOG("Alignment done in %s seconds (%s MBps).",
+             comma_sep(es).sep(),
+             comma_sep(bytes/es/1024.0/1024.0).sep());
+
+        if (autoUnloadRawMSS) {
+            OLOG("Unloading MSS (unaligned & band-split) raw image data ...");
+            UnloadMSS();
+            OLOG("Unloaded.");
+        }
+        OLOG("DoInterBandAlignment(): done.");
+    }
+    
+protected:
+    void DoInterBandAlignment(int section, size_t rowOffset, int rows) {
+        cv::Mat alignedBands[MSS_BANDS];
+        scoped_ptr<float> mapX = new float[PIXELS_PER_MSSBAND * rows];
+        scoped_ptr<float> mapY = new float[PIXELS_PER_MSSBAND * rows];
+        
         for (int b = 0; b < MSS_BANDS; ++b) {
             double * coeffX = mDeltaXcoeffs[b];
             double * coeffY = mDeltaYcoeffs[b];
@@ -344,62 +394,33 @@ public:
             // mapX(x,y) = mapX'(x',y')/4, mapY(x,y) = mapY'(x',y')/4
             // for (size_t y = 0; y < mLinesMSS; ++y) {
             for (size_t y = 0; y < rows; ++y) {
-                for (int x = 0; x < pixelPerBandLine; ++x) {
+                for (int x = 0; x < PIXELS_PER_MSSBAND; ++x) {
                     auto yy = y * MSS_BANDS;
                     auto xx = x * MSS_BANDS;
-                    mapX[y * pixelPerBandLine + x] = (float)((coeffX[1] * xx + coeffX[0] + xx)/MSS_BANDS);
-                    mapY[y * pixelPerBandLine + x] = (float)((coeffY[2] * xx * xx + coeffY[1] * xx + coeffY[0] + yy)/MSS_BANDS);
+                    mapX[y * PIXELS_PER_MSSBAND + x] = (float)((coeffX[1] * xx + coeffX[0] + xx)/MSS_BANDS);
+                    mapY[y * PIXELS_PER_MSSBAND + x] = (float)((coeffY[2] * xx * xx + coeffY[1] * xx + coeffY[0] + yy)/MSS_BANDS);
                 }
             }
             
             OLOG("[BAND#%d] remapping band image ...", b);
-            cv::remap(cv::Mat(rows, pixelPerBandLine, CV_16U, mImageBandMSS[b].get() + rowOffset * pixelPerBandLine),
-                      // cv::Mat(rows, pixelPerBandLine, CV_16U, alignedBand),
+            cv::remap(cv::Mat(rows, PIXELS_PER_MSSBAND, CV_16U, mImageBandMSS[b].get() + rowOffset * PIXELS_PER_MSSBAND),
                       alignedBands[b],
-                      cv::Mat(rows, pixelPerBandLine, CV_32FC1, mapX),
-                      cv::Mat(rows, pixelPerBandLine, CV_32FC1, mapY),
+                      cv::Mat(rows, PIXELS_PER_MSSBAND, CV_32FC1, mapX),
+                      cv::Mat(rows, PIXELS_PER_MSSBAND, CV_32FC1, mapY),
                       cv::INTER_CUBIC, cv::BORDER_CONSTANT);
 
-            // 4debug
-            // WriteBufferToFile((const char *)alignedBand.get(),
-            //                 pixelPerBandLine * rows * BYTES_PER_PIXEL,
-            //                 xs("AlignedBand_%d.raw", b));
-
-            /*//
-            OLOG("[BAND#%d] merge band image to final multi-band image ...", b);
-            // for (size_t y = 0; y < mLinesMSS; ++y) {
-            for (size_t y = 0; y < rows; ++y) {
-                memcpy(mAlignedMSS + y * PIXELS_PER_LINE + b * pixelPerBandLine,
-                       alignedBand + y * pixelPerBandLine,
-                       pixelPerBandLine * BYTES_PER_PIXEL);
-            }
-            //*/
             OLOG("[BAND#%d] band remapping done.", b);
         }
         
         OLOG("Merging all image bands into a single multi-channel image ...");
         cv::merge(alignedBands, MSS_BANDS, mAlignedMSS);
         OLOG("Merged.");
-
-        auto es = stop_watch::tik().ellapsed;
-        OLOG("Alignment done in %s seconds (%s MBps).",
-             comma_sep(es).sep(),
-             comma_sep(PIXELS_PER_LINE*rows*BYTES_PER_PIXEL/es/1024.0/1024.0).sep());
-
-        // 4debug
-        // WriteBufferToFile((const char *)mAlignedMSS.get(),
-        //                  PIXELS_PER_LINE * rows * BYTES_PER_PIXEL,
-        //                  "AlignedMSS.raw");
-
-        if (autoUnloadRawMSS) {
-            OLOG("Unloading MSS (unaligned & band-split) raw image data ...");
-            UnloadMSS();
-            OLOG("Unloaded.");
-        }
-        OLOG("DoInterBandAlignment(): done.");
+        
+        OLOG("Outputing section TIFF image ...");
+        WriteAlignedMSS_TIFF(rows, section);
+        OLOG("Output done.");
     }
     
-protected:
     void DumpInterBandShiftValues(int slices) {
         OLOG("|#SLC|Start|Center| End "
              "|   B1.x   |   B2.x   |   B3.x   |   B4.x   "
@@ -485,17 +506,6 @@ protected:
         return outputFilePath.string();
     }
     
-//    static uint16_t * CopyVerticalSplitBufferSlice(const uint16_t * buffer, int w, int h, int slices, int sliceIndex) {
-//        int sliceW = w / slices;
-//        scoped_ptr<uint16_t> slice = new uint16_t[(size_t)sliceW * h];
-//
-//        for (size_t i = 0; i < h; ++i) {
-//            memcpy(slice.get() + i * sliceW, buffer + i * w + sliceIndex * sliceW, sliceW * sizeof(uint16_t));
-//        }
-//
-//        return slice.detach();
-//    }
-    
     void InplaceRRC(uint16_t * buff, int w, int h, const RRCParam * rrcParam) {
         for (size_t y = 0; y < h; ++y) {
             for (size_t x = 0; x < w; ++x) {
@@ -514,9 +524,7 @@ protected:
         for (int i = 0; i < MSS_BANDS; ++i) {
             mRRCParamMSS[i] = LoadRRCParamFile(mRrcMssBndFile[i].c_str(), rrcLinesMSS);
         }
-#ifdef DEBUG
-        printf("LoadRRCParamFiles(): OK.\n");
-#endif
+        OLOG("LoadRRCParamFiles(): OK.\n");
     }
     
     void CheckFilesAttributes() {
@@ -530,7 +538,7 @@ protected:
         mLinesPAN = mSizePAN / (PIXELS_PER_LINE * BYTES_PER_PIXEL);
         
         // MSS file
-        OLOG("Checking PAN raw file attributes ...");
+        OLOG("Checking MSS raw file attributes ...");
         memset(&st, 0, sizeof(struct stat));
         if (stat(mMssFile.c_str(), &st)) throw errno_error("stat() call for MSS file failed");
         mSizeMSS = st.st_size;

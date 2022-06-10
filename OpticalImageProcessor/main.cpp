@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <cstring>
 #include <stdexcept>
+#include <CLI/CLI.hpp>
 
 #include "preproc.h"
 
@@ -24,71 +25,76 @@ struct InputParameters {
     std::string RRCParaMSS[MSS_BANDS];
     
     int IBCOR_Slices;
+    int IBPA_LineOffset;
+    int IBPA_BatchLines;
+    int IBPA_OverlapLines;
+    
+    InputParameters() :
+        IBCOR_Slices(DEFAULT_IBCSLCS),
+        IBPA_LineOffset(IBPA_DEFAULT_LINEOFFSET),
+        IBPA_BatchLines(IBPA_DEFAULT_BATCHLINES),
+        IBPA_OverlapLines(IBPA_DEFAULT_LINEOVERLAP)
+    {}
 };
 
 InputParameters ips_;
 
-void ParseTaskFile(const char * taskFile, InputParameters & ip) {
-    scoped_ptr<FILE, FileDtor> f = fopen(taskFile, "rb");
-    if (f.isNull()) throw errno_error("cannot open task file");
+int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) {
+    CLI::App app("Optical Satellite Image Pre-Processing/Processing Utility", "OpticalImageProcessor");
+    app.set_version_flag("-v,--version", "1.0");
     
-    char buff[2048] = { 0 };
-    for (char * rp = NULL; (rp = fgets(buff, sizeof(buff), f)); ) {
-        ToolBox::ChompChars(buff, strlen(buff));
-        char * buf = ToolBox::FirstValidChars(buff);
-        if (buf[0] == '#') continue;
+    auto existanceCheck = [](const std::string & v) {
+        if (!std::filesystem::exists(v)) return "file not exists";
+        return "";
+    };
+    
+    app.add_option("--pan", ips_.RawFilePAN, "PAN raw image file path")->check(existanceCheck);
+    app.add_option("--mss", ips_.RawFileMSS, "MSS raw image file path")->check(existanceCheck);
+    app.add_option("--rrc-pan", ips_.RRCParaPAN, "Relative Radiometric Correction parameter file path for PAN image");
+    app.add_option("--rrc-msb1",
+                   ips_.RRCParaMSS[0],
+                   "Relative Radiometric Correction parameter file path for MSS band #1 (1-based band NO.)"
+                   )->check(existanceCheck);
+    app.add_option("--rrc-msb2",
+                   ips_.RRCParaMSS[1],
+                   "Relative Radiometric Correction parameter file path for MSS band #2 (1-based band NO.)"
+                   )->check(existanceCheck);
+    app.add_option("--rrc-msb3",
+                   ips_.RRCParaMSS[2],
+                   "Relative Radiometric Correction parameter file path for MSS band #3 (1-based band NO.)"
+                   )->check(existanceCheck);
+    app.add_option("--rrc-msb4",
+                   ips_.RRCParaMSS[3],
+                   "Relative Radiometric Correction parameter file path for MSS band #4 (1-based band NO.)"
+                   )->check(existanceCheck);
+    app.add_option("--slices",
+                   ips_.IBCOR_Slices,
+                   xs("split slice count for inter-band correlation calculating, default is %d", DEFAULT_IBCSLCS));
+    app.add_option("--line-offset",
+                   ips_.IBPA_LineOffset,
+                   "line offset for inter-band pixel alignment processing, default is 0");
+    app.add_option("--lines-section",
+                   ips_.IBPA_BatchLines,
+                   xs("line-per-section for inter-band pixel alignment processing, default is %d", IBPA_DEFAULT_BATCHLINES));
+    app.add_option("--overlap-lines",
+                   ips_.IBPA_OverlapLines,
+                   xs("overlapped lines for each sibling portion during inter-band pixel alignment processing, "
+                      "default is %d", IBPA_DEFAULT_LINEOVERLAP));
 
-        auto pos = strchr(buf, '=');
-        if (pos == NULL) {
-            fprintf(stderr, "ignored: unrecognized line: %s", buff);
-            continue;
-        }
-        auto value = ToolBox::FirstValidChars(pos+1);
-        *pos = '\0';
-        auto key = ToolBox::ChompChars(buf, pos - buff, "\t ");
-        
-//#ifdef DEBUG
-//        printf("key: `%s', value: `%s'\n", key, value);
-//#endif
-        
-        if (       strcmp(key, TASKKEY_PAN   ) == 0) {
-            ip.RawFilePAN = value;
-        } else if (strcmp(key, TASKKEY_MSS   ) == 0) {
-            ip.RawFileMSS = value;
-        } else if (strcmp(key, TASKKEY_RRCPAN) == 0) {
-            ip.RRCParaPAN = value;
-        } else if (strcmp(key, TASKKEY_RRCMS1) == 0) {
-            ip.RRCParaMSS[0] = value;
-        } else if (strcmp(key, TASKKEY_RRCMS2) == 0) {
-            ip.RRCParaMSS[1] = value;
-        } else if (strcmp(key, TASKKEY_RRCMS3) == 0) {
-            ip.RRCParaMSS[2] = value;
-        } else if (strcmp(key, TASKKEY_RRCMS4) == 0) {
-            ip.RRCParaMSS[3] = value;
-        } else if (strcmp(key, TASKKEY_IBCSLCS)== 0) {
-            ip.IBCOR_Slices = atoi(value);
-        }
+    try {
+        app.parse(argc, argv);
+        return 0;
+    } catch (const CLI::Success &e) {
+        return app.exit(e) + 255;
+    } catch (const CLI::ParseError &e) {
+        return app.exit(e);
     }
-    
-    if (ip.IBCOR_Slices <= 0) ip.IBCOR_Slices = DEFAULT_IBCSLCS;
-}
-
-void ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) {
-    /// task file: describe task parameters, including PAN,MSS,RRC parameter file, etc.
-    if (argc != 2 || strncmp(argv[1], AN_TASK, NTASK) != 0) {
-        throw std::invalid_argument(xs("USAGE: %s -task:/path/to/task/file", argv[0]).s);
-    }
-    
-    char taskFile[MAX_PATH] = { 0 };
-    strncpy(taskFile, argv[1] + NTASK, MAX_PATH);
-    if (access(taskFile, F_OK) != 0) throw std::invalid_argument("specified task file not exists");
-    
-    ParseTaskFile(taskFile, ips_);
 }
 
 int main(int argc, const char * argv[]) {
     try {
-        ParseInputParametersFromCommandLineArguments(argc, argv);
+        int e = ParseInputParametersFromCommandLineArguments(argc, argv);
+        if (e != 0) return e;
         
         PreProcessor pp(  ips_.RawFilePAN
                         , ips_.RawFileMSS
@@ -101,15 +107,10 @@ int main(int argc, const char * argv[]) {
         //pp.WriteRRCedPAN();
         //pp.WriteRRCedMSS();
         
-        int alignedRows = 20000;
         pp.CalcInterBandCorrelation(ips_.IBCOR_Slices);
-        pp.DoInterBandAlignment(alignedRows, 3000);
-        pp.WriteAlignedMSS_TIFF(alignedRows);
+        pp.DoInterBandAlignment(ips_.IBPA_BatchLines, ips_.IBPA_LineOffset);
         
         return 0;
-    } catch (std::invalid_argument & ex) {
-        printf("USAGE ERROR: %s.\n", ex.what());
-        return 255;
     } catch (std::exception & ex) {
         printf("FATAL ERROR: %s.\n", ex.what());
         return 254;

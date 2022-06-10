@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 find_package(OpenCV REQUIRED core imgproc imgcodecs)
 find_package(NumCpp REQUIRED)
+find_package(CLI11 REQUIRED)
 
 add_executable(${PROJECT_NAME} main.cpp)
 
