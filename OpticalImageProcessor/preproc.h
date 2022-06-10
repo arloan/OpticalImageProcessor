@@ -321,7 +321,7 @@ public:
     }
     
     // TODO: opencv::remap does not support image data larger than 32767*32767, need further handling
-    // processing a portion of input image for now.
+    // processing portion by portion of input image for now.
     void DoInterBandAlignment(int linePerSection, int lineOffset = 0,
                               int sectionOverlap = IBPA_DEFAULT_LINEOVERLAP,
                               bool autoUnloadRawMSS = true) {
@@ -344,7 +344,7 @@ public:
         size_t bytes = 0;
         size_t offset = lineOffset;
         int sections = (int)((mLinesMSS - lineOffset) / (linePerSection - sectionOverlap)) + 1;
-        stop_watch::rst();
+        stop_watch sw;
         
         for (int i = 0; ; ++i) {
             auto lines = std::min(mLinesMSS - offset, (size_t)linePerSection);
@@ -364,7 +364,7 @@ public:
             offset += linePerSection - sectionOverlap;
         }
         
-        auto es = stop_watch::tik().ellapsed;
+        auto es = sw.tick().ellapsed;
         OLOG("Alignment done in %s seconds (%s MBps).",
              comma_sep(es).sep(),
              comma_sep(bytes/es/1024.0/1024.0).sep());
