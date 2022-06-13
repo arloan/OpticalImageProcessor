@@ -197,6 +197,7 @@
 					"-lopencv_core",
 					"-lopencv_imgproc",
 					"-lopencv_imgcodecs",
+					"-lgdal",
 				);
 				SDKROOT = macosx;
 			};
@@ -256,6 +257,7 @@
 					"-lopencv_core",
 					"-lopencv_imgproc",
 					"-lopencv_imgcodecs",
+					"-lgdal",
 				);
 				SDKROOT = macosx;
 			};

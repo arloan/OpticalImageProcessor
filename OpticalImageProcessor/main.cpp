@@ -95,6 +95,7 @@ int main(int argc, const char * argv[]) {
         int e = ParseInputParametersFromCommandLineArguments(argc, argv);
         if (e != 0) return e;
         
+        GDALAllRegister();
         PreProcessor pp(  ips_.RawFilePAN
                         , ips_.RawFileMSS
                         , ips_.RRCParaPAN
@@ -103,7 +104,7 @@ int main(int argc, const char * argv[]) {
         pp.LoadMSS();
         
         pp.DoRRC();
-        //pp.WriteRRCedPAN(ips_.IBPA_LineOffset);
+        pp.WriteRRCedPAN_TIFF(ips_.IBPA_LineOffset);
         //pp.WriteRRCedMSS();
         
         pp.CalcInterBandCorrelation(ips_.IBCOR_Slices);
