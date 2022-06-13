@@ -12,5 +12,7 @@ find_package(CLI11 REQUIRED)
 add_executable(${PROJECT_NAME} main.cpp)
 
 target_include_directories(${PROJECT_NAME} PUBLIC /usr/local/include)
+target_include_directories(${PROJECT_NAME} PUBLIC ${NumCPP_INCLUDE_DIRS})
+target_include_directories(${PROJECT_NAME} PUBLIC ${CLI11_INCLUDE_DIRS})
 
 target_link_libraries(${PROJECT_NAME} LINK_PUBLIC ${OpenCV_LIBS})

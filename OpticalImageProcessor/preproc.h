@@ -163,10 +163,10 @@ public:
              comma_sep(mSizeMSS/es/1024.0/1024.0).sep());
     }
     
-    void WriteAlignedMSS_TIFF(int rows, int section) {
+    void WriteAlignedMSS_TIFF() {
         OLOG("Writing aligned MSS image as TIFF file ...");
         
-        auto saveFilePath = BuildOutputFilePath(mMssFile, xs(".SEC%d", section), ".TIFF");
+        auto saveFilePath = BuildOutputFilePath(mMssFile, ".ALIGNED", ".TIFF");
         // cv::Mat imageData((int)mLinesMSS, PIXELS_PER_LINE, CV_16U, mAlignedMSS.get());
         // cv::Mat imageData(rows, PIXELS_PER_LINE, CV_16U, mAlignedMSS.get());
         cv::Mat & imageData = mAlignedMSS;
@@ -180,7 +180,7 @@ public:
         OLOG("Written to file [%s].", saveFilePath.c_str());
         OLOG("Writing cost %s seconds (%s MBps).",
              comma_sep(es).sep(),
-             comma_sep(mSizeMSS/es/1024.0/1024.0).sep());
+             comma_sep(imageData.elemSize()*imageData.total()/es/1024.0/1024.0).sep());
     }
     
     // Relative radiation correction
@@ -343,7 +343,9 @@ public:
         
         size_t bytes = 0;
         size_t offset = lineOffset;
+        int processedLines = 0;
         int sections = (int)((mLinesMSS - lineOffset) / (linePerSection - sectionOverlap)) + 1;
+        mAlignedMSS.create((int)(mLinesMSS - lineOffset - sectionOverlap), PIXELS_PER_MSSBAND, CV_16UC4);
         stop_watch sw;
         
         for (int i = 0; ; ++i) {
@@ -357,9 +359,14 @@ public:
             
             
             OLOG("Doing inter-band alignment of section %d/%d ...", i+1, sections);
-            DoInterBandAlignment(i+1, offset, (int)lines);
-            OLOG("");
+            cv::Mat sectionMat = DoInterBandAlignment(offset, (int)lines);
+            OLOG("Copying to final image ...");
+            memcpy(mAlignedMSS.ptr(processedLines),
+                   sectionMat.ptr(sectionOverlap),
+                   (size_t)(lines - sectionOverlap) * PIXELS_PER_MSSBAND * sectionMat.elemSize());
+            OLOG("Copied.");
             
+            processedLines += lines - sectionOverlap;
             bytes += (size_t)lines * PIXELS_PER_MSSBAND * BYTES_PER_PIXEL;
             offset += linePerSection - sectionOverlap;
         }
@@ -368,6 +375,10 @@ public:
         OLOG("Alignment done in %s seconds (%s MBps).",
              comma_sep(es).sep(),
              comma_sep(bytes/es/1024.0/1024.0).sep());
+        
+        OLOG("Outputing aligned TIFF image ...");
+        WriteAlignedMSS_TIFF();
+        OLOG("Output done.");
 
         if (autoUnloadRawMSS) {
             OLOG("Unloading MSS (unaligned & band-split) raw image data ...");
@@ -378,7 +389,7 @@ public:
     }
     
 protected:
-    void DoInterBandAlignment(int section, size_t rowOffset, int rows) {
+    cv::Mat DoInterBandAlignment(size_t rowOffset, int rows) {
         cv::Mat alignedBands[MSS_BANDS];
         scoped_ptr<float> mapX = new float[PIXELS_PER_MSSBAND * rows];
         scoped_ptr<float> mapY = new float[PIXELS_PER_MSSBAND * rows];
@@ -413,12 +424,14 @@ protected:
         }
         
         OLOG("Merging all image bands into a single multi-channel image ...");
-        cv::merge(alignedBands, MSS_BANDS, mAlignedMSS);
+        cv::Mat rMat;
+        cv::merge(alignedBands, MSS_BANDS, rMat);
         OLOG("Merged.");
         
-        OLOG("Outputing section TIFF image ...");
-        WriteAlignedMSS_TIFF(rows, section);
-        OLOG("Output done.");
+        //OLOG("Outputing section TIFF image ...");
+        //WriteAlignedMSS_TIFF(rows, section);
+        //OLOG("Output done.");
+        return rMat;
     }
     
     void DumpInterBandShiftValues(int slices) {
