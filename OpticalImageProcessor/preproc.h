@@ -276,9 +276,9 @@ public:
                 stop_watch::rst();
                 cv::resize(cv::Mat(bandRows, bandSliceCols, CV_32FC1, bandSlice32F.data())
                            , scaledBandSlice32F
-                           , cv::Size(0, 0)
-                           , (double)MSS_BANDS
-                           , (double)MSS_BANDS
+                           , cv::Size(baseSliceCols, baseRows)
+                           , 0
+                           , 0
                            , cv::INTER_CUBIC);
                 es = stop_watch::tik().ellapsed;
                 OLOG("Upscaling done in %s seconds (%s MBps).",

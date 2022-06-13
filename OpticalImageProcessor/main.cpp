@@ -103,11 +103,11 @@ int main(int argc, const char * argv[]) {
         pp.LoadMSS();
         
         pp.DoRRC();
-        //pp.WriteRRCedPAN();
+        //pp.WriteRRCedPAN(ips_.IBPA_LineOffset);
         //pp.WriteRRCedMSS();
         
         pp.CalcInterBandCorrelation(ips_.IBCOR_Slices);
-        pp.DoInterBandAlignment(ips_.IBPA_BatchLines, ips_.IBPA_LineOffset);
+        pp.DoInterBandAlignment(ips_.IBPA_BatchLines, ips_.IBPA_LineOffset, ips_.IBPA_OverlapLines);
         
         return 0;
     } catch (std::exception & ex) {
