@@ -247,6 +247,10 @@ public:
         if (sections <= 0) {
             throw std::invalid_argument("CalcInterBandCorrelation: section count should be a positive integer");
         }
+        if (sections > 1 && sections * CORRELATION_LINES > mLinesPAN) {
+            throw std::invalid_argument(xs("CalcInterBandCorrelation: too many sections (%d lines per section), "
+                                           "not enough total PAN data lines", CORRELATION_LINES).s);
+        }
         
         OLOG("Calculating inter-band correlation with %d slices in %d section(s) ...", slices, sections);
         for (int b = 0; b < MSS_BANDS; ++b) {
