@@ -240,104 +240,114 @@ public:
         }
     }
     
-    void CalcInterBandCorrelation(int slices, bool autoUnloadPAN = true) {
+    void CalcInterBandCorrelation(int slices = DEFAULT_IBCSLCS, int sections = IBCV_DEF_SECTIONS, bool autoUnloadPAN = true) {
         if (slices < MINIMUM_IBCSLCS) {
             throw std::invalid_argument(xs("CalcInterBandCorrelation: at lease %d slice needed", MINIMUM_IBCSLCS).s);
         }
+        if (sections <= 0) {
+            throw std::invalid_argument("CalcInterBandCorrelation: section count should be a positive integer");
+        }
         
-        OLOG("Calculating inter-band correlation with %d slicing ...", slices);
+        OLOG("Calculating inter-band correlation with %d slices in %d section(s) ...", slices, sections);
         for (int b = 0; b < MSS_BANDS; ++b) {
-            mBandShift[b] = new InterBandShift[slices];
+            mBandShift[b] = new InterBandShift[slices * sections];
         }
 
         double es = 0.0;
         int baseRows = std::min((int)mLinesPAN, CORRELATION_LINES);
-        int baseRowGap = ((int)mLinesPAN - baseRows) / 2;
+        int baseRowGap = ((int)mLinesPAN - baseRows) / (sections + 1);
         int baseSliceCols = PIXELS_PER_LINE / slices;
         size_t sliceBytes = (size_t)baseRows * baseSliceCols * BYTES_PER_PIXEL;
         nc::NdArray<uint16_t> baseImage16U(mImagePAN.get(), (int)mLinesPAN, PIXELS_PER_LINE, false);
-        for (int i = 0; i < slices; ++i)
-        {
-            OLOG("Extracting #%d slice from PAN image as base slice ...", i);
-            stop_watch::rst();
-            auto baseSlice16U = baseImage16U(nc::Slice(baseRowGap, baseRowGap + baseRows), nc::Slice(i * baseSliceCols, (i + 1) * baseSliceCols));
-            es = stop_watch::tik().ellapsed;
-            OLOG("Extraction done in %s seconds (%s MBps).",
-                 comma_sep(es).sep(),
-                 comma_sep(sliceBytes/es/1024.0/1024.0).sep());
 
-            stop_watch::rst();
-            auto baseSlice32F = baseSlice16U.astype<float>();
-            es = stop_watch::tik().ellapsed;
-            OLOG("Converting base slice from Uint16 to Float32 elements in %s seconds (%s MBps).",
-                 comma_sep(es).sep(),
-                 comma_sep(sliceBytes/es/1024.0/1024.0).sep());
-
-            cv::Mat baseMat32F(baseRows, baseSliceCols, CV_32FC1, baseSlice32F.data());
-            
-            int bandRows = baseRows / MSS_BANDS;
-            int bandRowGap = baseRowGap / MSS_BANDS;
-            int bandSliceCols = baseSliceCols / MSS_BANDS;
-            size_t bandSliceBytes = sliceBytes / MSS_BANDS / MSS_BANDS;
-            for (int b = 0; b < MSS_BANDS; ++b) {
-                OLOG("Calculating inter-band correlation of BAND%d ...", b);
-                nc::NdArray<uint16_t> band16U(mImageBandMSS[b].get(), (int)mLinesMSS, PIXELS_PER_LINE / MSS_BANDS, false);
-                
-                OLOG("Extracting #%d slice from #%d band of MSS image ...", i, b);
+        for (int sec = 0; sec < sections; ++sec) {
+            OLOG(":::: #%d section processing ::::", sec);
+            for (int i = 0; i < slices; ++i)
+            {
+                OLOG("Extracting #%d slice from PAN image as base slice ...", i);
                 stop_watch::rst();
-                auto bandSlice16U = band16U(nc::Slice(bandRowGap, bandRowGap + bandRows),
-                                            nc::Slice(i * bandSliceCols, (i + 1) * bandSliceCols));
+                int secRowStart = baseRowGap + sec * (baseRows + baseRowGap);
+                auto baseSlice16U = baseImage16U(nc::Slice(secRowStart, secRowStart + baseRows),
+                                                 nc::Slice(i * baseSliceCols, (i + 1) * baseSliceCols));
                 es = stop_watch::tik().ellapsed;
                 OLOG("Extraction done in %s seconds (%s MBps).",
                      comma_sep(es).sep(),
-                     comma_sep(bandSliceBytes/es/1024.0/1024.0).sep());
+                     comma_sep(sliceBytes/es/1024.0/1024.0).sep());
 
                 stop_watch::rst();
-                auto bandSlice32F = bandSlice16U.astype<float>();
+                auto baseSlice32F = baseSlice16U.astype<float>();
                 es = stop_watch::tik().ellapsed;
                 OLOG("Converting base slice from Uint16 to Float32 elements in %s seconds (%s MBps).",
                      comma_sep(es).sep(),
-                     comma_sep(bandSliceBytes/es/1024.0/1024.0).sep());
-                
-                OLOG("Upscaling slice of MSS band image to the size of base slice image ...");
-                cv::Mat scaledBandSlice32F;
-                stop_watch::rst();
-                cv::resize(cv::Mat(bandRows, bandSliceCols, CV_32FC1, bandSlice32F.data())
-                           , scaledBandSlice32F
-                           , cv::Size(baseSliceCols, baseRows)
-                           , 0
-                           , 0
-                           , cv::INTER_CUBIC);
-                es = stop_watch::tik().ellapsed;
-                OLOG("Upscaling done in %s seconds (%s MBps).",
-                     comma_sep(es).sep(),
-                     comma_sep(bandSliceBytes/es/1024.0/1024.0).sep());
-
-                OLOG("Calculating phase correlation of slice #%d for band #%d ...", i, b);
-                double res = 0.0;
-                stop_watch::rst();
-                cv::Point2d rv = cv::phaseCorrelate(baseMat32F, scaledBandSlice32F, cv::noArray(), &res);
-                es = stop_watch::tik().ellapsed;
-                OLOG("Calculating done in %s seconds (%s MBps).",
-                     comma_sep(es).sep(),
                      comma_sep(sliceBytes/es/1024.0/1024.0).sep());
+
+                cv::Mat baseMat32F(baseRows, baseSliceCols, CV_32FC1, baseSlice32F.data());
                 
-                InterBandShift & shift = mBandShift[b][i];
-                shift.dx = rv.x;
-                shift.dy = rv.y;
-                shift.rs = res;
-                shift.cx = i * baseSliceCols + baseSliceCols / 2;
+                int bandRows = baseRows / MSS_BANDS;
+                int bandRowGap = baseRowGap / MSS_BANDS;
+                int bandSliceCols = baseSliceCols / MSS_BANDS;
+                size_t bandSliceBytes = sliceBytes / (MSS_BANDS * MSS_BANDS);
+                for (int b = 0; b < MSS_BANDS; ++b) {
+                    OLOG("Calculating inter-band correlation of BAND%d ...", b);
+                    nc::NdArray<uint16_t> band16U(mImageBandMSS[b].get(), (int)mLinesMSS, PIXELS_PER_LINE / MSS_BANDS, false);
+                    
+                    OLOG("Extracting #%d slice from #%d band of MSS image ...", i, b);
+                    stop_watch::rst();
+                    int secBandRowStart = bandRowGap + sec * (bandRows + bandRowGap);
+                    auto bandSlice16U = band16U(nc::Slice(secBandRowStart, secBandRowStart + bandRows),
+                                                nc::Slice(i * bandSliceCols, (i + 1) * bandSliceCols));
+                    es = stop_watch::tik().ellapsed;
+                    OLOG("Extraction done in %s seconds (%s MBps).",
+                         comma_sep(es).sep(),
+                         comma_sep(bandSliceBytes/es/1024.0/1024.0).sep());
+
+                    stop_watch::rst();
+                    auto bandSlice32F = bandSlice16U.astype<float>();
+                    es = stop_watch::tik().ellapsed;
+                    OLOG("Converting base slice from Uint16 to Float32 elements in %s seconds (%s MBps).",
+                         comma_sep(es).sep(),
+                         comma_sep(bandSliceBytes/es/1024.0/1024.0).sep());
+                    
+                    OLOG("Upscaling slice of MSS band image to the size of base slice image ...");
+                    cv::Mat scaledBandSlice32F;
+                    stop_watch::rst();
+                    cv::resize(cv::Mat(bandRows, bandSliceCols, CV_32FC1, bandSlice32F.data())
+                               , scaledBandSlice32F
+                               , cv::Size(baseSliceCols, baseRows)
+                               , 0
+                               , 0
+                               , cv::INTER_CUBIC);
+                    es = stop_watch::tik().ellapsed;
+                    OLOG("Upscaling done in %s seconds (%s MBps).",
+                         comma_sep(es).sep(),
+                         comma_sep(bandSliceBytes/es/1024.0/1024.0).sep());
+
+                    OLOG("Calculating phase correlation of slice #%d for band #%d ...", i, b);
+                    double res = 0.0;
+                    stop_watch::rst();
+                    cv::Point2d rv = cv::phaseCorrelate(baseMat32F, scaledBandSlice32F, cv::noArray(), &res);
+                    es = stop_watch::tik().ellapsed;
+                    OLOG("Calculating done in %s seconds (%s MBps).",
+                         comma_sep(es).sep(),
+                         comma_sep(sliceBytes/es/1024.0/1024.0).sep());
+                    
+                    InterBandShift & shift = mBandShift[b][sec * slices + i];
+                    shift.dx = rv.x;
+                    shift.dy = rv.y;
+                    shift.rs = res;
+                    shift.cx = i * baseSliceCols + baseSliceCols / 2;
+                }
             }
         }
         
         OLOG("Inter-band correlation finished, result:");
-        DumpInterBandShiftValues(slices);
+        DumpInterBandShiftValues(slices, sections);
         OLOG("Filter invalid correlation values, result:");
-        FilterInterBandShiftValues(slices);
-        DumpInterBandShiftValues(slices);
+        FilterInterBandShiftValues(slices, sections);
+        DumpInterBandShiftValues(slices, sections);
 
         OLOG("Try polynomial fitting ...");
-        DoCorrelationPolynomialFitting(slices);
+        DoCorrelationPolynomialFitting(slices, sections);
         OLOG("Polynomial fitting done.");
         
         OLOG("CalcInterBandCorrelation(): done.");
@@ -428,7 +438,7 @@ protected:
             
             OLOG("[BAND#%d] creating mapX & mapY matrix ...", b);
             // (x, y) -> coordinates of MSS BAND sized image
-            // polinomial coeffective values are of PAN size image
+            // polynomial coeffective values are of PAN size image
             // take (x', y') for coordinates of PAN, then x' = 4x, y' = 4y when BANDS=4
             // mapX(x,y) = mapX'(x',y')/4, mapY(x,y) = mapY'(x',y')/4
             // for (size_t y = 0; y < mLinesMSS; ++y) {
@@ -462,27 +472,34 @@ protected:
         return rMat;
     }
     
-    void DumpInterBandShiftValues(int slices) {
+    void DumpInterBandShiftValues(int slices, int sections) {
         OLOG("|#SLC|Start|Center| End "
              "|   B1.x   |   B2.x   |   B3.x   |   B4.x   "
              "|   B1.y   |   B2.y   |   B3.y   |   B4.y   "
              "|   B1.r   |   B2.r   |   B3.r   |   B4.r   |");
         int sliceCols = PIXELS_PER_LINE / slices;
-        for (int i = 0; i < slices; ++i) {
-            OLOG("|%4d|%5d|%6d|%5d|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|"
-                 , i, i * sliceCols, mBandShift[0][i].cx, (i + 1) * sliceCols
-                 , mBandShift[0][i].dx, mBandShift[1][i].dx, mBandShift[2][i].dx, mBandShift[3][i].dx
-                 , mBandShift[0][i].dy, mBandShift[1][i].dy, mBandShift[2][i].dy, mBandShift[3][i].dy
-                 , mBandShift[0][i].rs, mBandShift[1][i].rs, mBandShift[2][i].rs, mBandShift[3][i].rs);
+        for (int s = 0; s < sections; ++s) {
+            OLOG("----------------------------------------------------------------------------------------------------"
+                 "---------------------------------------------------------");
+            for (int i = 0; i < slices; ++i) {
+                int ii = i + s * slices;
+                OLOG("|%4d|%5d|%6d|%5d|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|"
+                     , i, i * sliceCols, mBandShift[0][ii].cx, (i + 1) * sliceCols
+                     , mBandShift[0][ii].dx, mBandShift[1][ii].dx, mBandShift[2][ii].dx, mBandShift[3][ii].dx
+                     , mBandShift[0][ii].dy, mBandShift[1][ii].dy, mBandShift[2][ii].dy, mBandShift[3][ii].dy
+                     , mBandShift[0][ii].rs, mBandShift[1][ii].rs, mBandShift[2][ii].rs, mBandShift[3][ii].rs);
+            }
         }
+        OLOG("----------------------------------------------------------------------------------------------------"
+             "---------------------------------------------------------");
     }
     
-    void FilterInterBandShiftValues(int slices) {
+    void FilterInterBandShiftValues(int slices, int sections) {
         double nan = std::numeric_limits<double>::quiet_NaN();
         for (int b = 0; b < MSS_BANDS; ++b) {
             int fc = 0;
             InterBandShift * shifts = mBandShift[b];
-            for (int i = 0; i < slices; ++i) {
+            for (int i = 0; i < slices * sections; ++i) {
                 if (shifts[i].rs < IBCV_SHRESHHOLD) {
                     shifts[i].dx = nan;
                     shifts[i].dy = nan;
@@ -499,15 +516,16 @@ protected:
         }
     }
     
-    void DoCorrelationPolynomialFitting(int slices) {
+    void DoCorrelationPolynomialFitting(int slices, int sections) {
+        int crvPerBand = slices * sections;
         for (int b = 0; b < MSS_BANDS; ++b) {
             // x拟合为直线，y拟合为二次曲线
             OLOG("Doing polynomial fitting for BAND %d ...", b);
             int vvi = 0;
-            scoped_ptr<double> cxvals = new double[slices];
-            scoped_ptr<double> xvals  = new double[slices];
-            scoped_ptr<double> yvals  = new double[slices];
-            for (int i = 0; i < slices; ++i) {
+            scoped_ptr<double> cxvals = new double[crvPerBand];
+            scoped_ptr<double> xvals  = new double[crvPerBand];
+            scoped_ptr<double> yvals  = new double[crvPerBand];
+            for (int i = 0; i < crvPerBand; ++i) {
                 const InterBandShift & ibs = mBandShift[b][i];
                 if (ibs.rs >= IBCV_SHRESHHOLD) {
                     cxvals[vvi] = ibs.cx;

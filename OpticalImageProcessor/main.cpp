@@ -24,12 +24,14 @@ struct InputParameters {
     std::string RRCParaMSS[MSS_BANDS];
     
     int IBCOR_Slices;
+    int IBCOR_Sections;
     int IBPA_LineOffset;
     int IBPA_BatchLines;
     int IBPA_OverlapLines;
     
     InputParameters() :
         IBCOR_Slices(DEFAULT_IBCSLCS),
+        IBCOR_Sections(IBCV_DEF_SECTIONS),
         IBPA_LineOffset(IBPA_DEFAULT_LINEOFFSET),
         IBPA_BatchLines(IBPA_DEFAULT_BATCHLINES),
         IBPA_OverlapLines(IBPA_DEFAULT_LINEOVERLAP)
@@ -69,6 +71,10 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
     app.add_option("--slices",
                    ips_.IBCOR_Slices,
                    xs("split slice count for inter-band correlation calculating, default is %d", DEFAULT_IBCSLCS));
+    app.add_option("--ibc-sections",
+                   ips_.IBCOR_Sections,
+                   xs("split virtically section count for inter-band correlation calculating, default is %d",
+                      IBCV_DEF_SECTIONS))->default_val(IBCV_DEF_SECTIONS);
     app.add_option("--line-offset",
                    ips_.IBPA_LineOffset,
                    "line offset for inter-band pixel alignment processing, default is 0");
@@ -104,10 +110,10 @@ int main(int argc, const char * argv[]) {
         pp.LoadMSS();
         
         pp.DoRRC();
-        pp.WriteRRCedPAN_TIFF(ips_.IBPA_LineOffset);
+        //pp.WriteRRCedPAN_TIFF(ips_.IBPA_LineOffset);
         //pp.WriteRRCedMSS();
         
-        pp.CalcInterBandCorrelation(ips_.IBCOR_Slices);
+        pp.CalcInterBandCorrelation(ips_.IBCOR_Slices, ips_.IBCOR_Sections);
         pp.DoInterBandAlignment(ips_.IBPA_BatchLines, ips_.IBPA_LineOffset, ips_.IBPA_OverlapLines);
         
         return 0;

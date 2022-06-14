@@ -31,6 +31,7 @@
 #define CORRELATION_LINES   16000
 #define IBCV_SHRESHHOLD     0.4 // valid Inter Band Correlation Value shreshhold
 #define IBCV_MIN_COUNT      5   // minimum IBC value count before polynomial fitting
+#define IBCV_DEF_SECTIONS   1
 
 #define TASKKEY_PAN     "PAN"
 #define TASKKEY_MSS     "MSS"
