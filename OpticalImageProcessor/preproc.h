@@ -240,9 +240,9 @@ public:
         }
     }
     
-    void CalcInterBandCorrelation(int slices = DEFAULT_IBCSLCS, int sections = IBCV_DEF_SECTIONS, bool autoUnloadPAN = true) {
-        if (slices < MINIMUM_IBCSLCS) {
-            throw std::invalid_argument(xs("CalcInterBandCorrelation: at lease %d slice needed", MINIMUM_IBCSLCS).s);
+    void CalcInterBandCorrelation(int slices = IBCV_DEF_SLICES, int sections = IBCV_DEF_SECTIONS, bool autoUnloadPAN = true) {
+        if (slices < IBCV_MIN_SLICES) {
+            throw std::invalid_argument(xs("CalcInterBandCorrelation: at lease %d slice needed", IBCV_MIN_SLICES).s);
         }
         if (sections <= 0) {
             throw std::invalid_argument("CalcInterBandCorrelation: section count should be a positive integer");

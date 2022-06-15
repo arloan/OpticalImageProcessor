@@ -30,7 +30,7 @@ struct InputParameters {
     int IBPA_OverlapLines;
     
     InputParameters() :
-        IBCOR_Slices(DEFAULT_IBCSLCS),
+        IBCOR_Slices(IBCV_DEF_SLICES),
         IBCOR_Sections(IBCV_DEF_SECTIONS),
         IBPA_LineOffset(IBPA_DEFAULT_LINEOFFSET),
         IBPA_BatchLines(IBPA_DEFAULT_BATCHLINES),
@@ -70,7 +70,7 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
                    )->check(existanceCheck);
     app.add_option("--slices",
                    ips_.IBCOR_Slices,
-                   xs("split slice count for inter-band correlation calculating, default is %d", DEFAULT_IBCSLCS));
+                   xs("split slice count for inter-band correlation calculating, default is %d", IBCV_DEF_SLICES));
     app.add_option("--ibc-sections",
                    ips_.IBCOR_Sections,
                    xs("split virtically section count for inter-band correlation calculating, default is %d",
