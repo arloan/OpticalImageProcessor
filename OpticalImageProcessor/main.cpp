@@ -29,12 +29,17 @@ struct InputParameters {
     int IBPA_BatchLines;
     int IBPA_OverlapLines;
     
+    bool doRRC;
+    bool outputRrcPanTiff;
+    
     InputParameters() :
         IBCOR_Slices(IBCV_DEF_SLICES),
         IBCOR_Sections(IBCV_DEF_SECTIONS),
         IBPA_LineOffset(IBPA_DEFAULT_LINEOFFSET),
         IBPA_BatchLines(IBPA_DEFAULT_BATCHLINES),
-        IBPA_OverlapLines(IBPA_DEFAULT_LINEOVERLAP)
+        IBPA_OverlapLines(IBPA_DEFAULT_LINEOVERLAP),
+        doRRC(true),
+        outputRrcPanTiff(false)
     {}
 };
 
@@ -51,6 +56,10 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
     
     app.add_option("--pan", ips_.RawFilePAN, "PAN raw image file path")->check(existanceCheck);
     app.add_option("--mss", ips_.RawFileMSS, "MSS raw image file path")->check(existanceCheck);
+    app.add_flag  ("--rrc,!--no-rrc", ips_.doRRC, "whether or not do Relative Radiometric Correction, default is to do it");
+    app.add_flag  ("--write-rrcpan,!--no-rrcpan",
+                   ips_.outputRrcPanTiff,
+                   "whether or not write RRC-ed PAN data as tiff image file, default is not");
     app.add_option("--rrc-pan", ips_.RRCParaPAN, "Relative Radiometric Correction parameter file path for PAN image");
     app.add_option("--rrc-msb1",
                    ips_.RRCParaMSS[0],
@@ -88,6 +97,14 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
 
     try {
         app.parse(argc, argv);
+        if (ips_.doRRC
+            &&(ips_.RRCParaPAN   .length() == 0
+            || ips_.RRCParaMSS[0].length() == 0
+            || ips_.RRCParaMSS[1].length() == 0
+            || ips_.RRCParaMSS[2].length() == 0
+            || ips_.RRCParaMSS[3].length() == 0)) {
+            throw std::invalid_argument("RRC parameter file needed");
+        }
         return 0;
     } catch (const CLI::Success &e) {
         return app.exit(e) + 255;
@@ -109,8 +126,8 @@ int main(int argc, const char * argv[]) {
         pp.LoadPAN();
         pp.LoadMSS();
         
-        pp.DoRRC();
-        //pp.WriteRRCedPAN_TIFF(ips_.IBPA_LineOffset);
+        if (ips_.doRRC) pp.DoRRC();
+        if (ips_.outputRrcPanTiff) pp.WriteRRCedPAN_TIFF(ips_.IBPA_LineOffset);
         //pp.WriteRRCedMSS();
         
         pp.CalcInterBandCorrelation(ips_.IBCOR_Slices, ips_.IBCOR_Sections);
