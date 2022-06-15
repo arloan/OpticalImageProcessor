@@ -259,7 +259,7 @@ public:
 
         double es = 0.0;
         int baseRows = std::min((int)mLinesPAN, CORRELATION_LINES);
-        int baseRowGap = ((int)mLinesPAN - baseRows) / (sections + 1);
+        int baseRowGap = ((int)mLinesPAN - baseRows * sections) / (sections + 1);
         int baseSliceCols = PIXELS_PER_LINE / slices;
         size_t sliceBytes = (size_t)baseRows * baseSliceCols * BYTES_PER_PIXEL;
         nc::NdArray<uint16_t> baseImage16U(mImagePAN.get(), (int)mLinesPAN, PIXELS_PER_LINE, false);
