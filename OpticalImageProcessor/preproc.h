@@ -139,12 +139,13 @@ public:
         
         int rows = (int)(mLinesPAN - lineOffset);
         int cols = PIXELS_PER_LINE;
-        char ** options = CSLParseCommandLine("");
-        options = CSLSetNameValue(options, "BIGTIFF", "YES"/*"IF_NEEDED"*/);
-        GDALDataset * ds = driverGeotiff->Create(saveFilePath.c_str(), cols, rows, 1, GDT_UInt16, options);
-        CSLDestroy(options);
+        // char ** options = CSLParseCommandLine("");
+        // options = CSLSetNameValue(options, "BIGTIFF", "YES"/*"IF_NEEDED"*/);
+        // GDALDataset * ds = driverGeotiff->Create(saveFilePath.c_str(), cols, rows, 1, GDT_UInt16, options);
+        // CSLDestroy(options);
         
         OLOG("Writing RRC-ed PAN image as BIG TIFF file ...");
+        GDALDataset * ds = driverGeotiff->Create(saveFilePath.c_str(), cols, rows, 1, GDT_UInt16, NULL);
         GDALRasterBand * bnd = ds->GetRasterBand(1);
         stop_watch::rst();
         if (bnd->RasterIO(GF_Write, 0, 0, cols, rows,
@@ -152,6 +153,7 @@ public:
                           cols, rows, GDT_UInt16, 0, 0) == CE_Failure) {
             throw std::runtime_error("GDAL::GDALRasterBand::RasterIO() failed.");
         }
+        GDALClose(ds);
         auto es = stop_watch::tik().ellapsed;
         OLOG("Written to file [%s].", saveFilePath.c_str());
         OLOG("Written %s bytes in %s seconds (%s MBps).",
