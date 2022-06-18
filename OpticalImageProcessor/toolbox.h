@@ -8,6 +8,7 @@
 #ifndef toolbox_h
 #define toolbox_h
 
+#include <filesystem>
 #include "oipshared.h"
 
 BEGIN_NS(OIP)

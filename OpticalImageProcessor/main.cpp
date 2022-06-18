@@ -12,6 +12,7 @@
 #include <CLI/CLI.hpp>
 
 #include "preproc.h"
+#include "stitcher.h"
 
 USING_NS(OIP)
 
@@ -43,17 +44,54 @@ struct InputParameters {
     {}
 };
 
+struct StitchParams {
+    std::string rawFilePAN1;
+    std::string rawFilePAN2;
+    std::string rrcParaPAN1;
+    std::string rrcParaPAN2;
+
+    int sections;
+    int sectionLines;
+    int overlapCols;
+};
+
 InputParameters ips_;
+StitchParams stp_;
+
+void PreStitch(const StitchParams & stp);
+void DefaultAction(const InputParameters & ip);
 
 int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) {
     CLI::App app("Optical Satellite Image Pre-Processing/Processing Utility", "OpticalImageProcessor");
-    app.set_version_flag("-v,--version", "1.0");
+    app.set_version_flag("-v,--version", "1.1");
+    app.require_subcommand(0, 1);
     
     auto existanceCheck = [](const std::string & v) {
         if (!std::filesystem::exists(v)) return "file not exists";
         return "";
     };
     
+    // `prestitch` sub command arguments
+    CLI::App & psa = * app.add_subcommand("prestitch", "Do preparation parameters calculting for CMOS stitching");
+    psa.add_option("--pan1", stp_.rawFilePAN1, "PAN raw image file of CMOS1")->check(existanceCheck);
+    psa.add_option("--pan2", stp_.rawFilePAN1, "PAN raw image file of CMOS2")->check(existanceCheck);
+    psa.add_option("--rrc1", stp_.rrcParaPAN1,
+                   "Relative Radiometric Correction parameter file for PAN1")->check(existanceCheck);
+    psa.add_option("--rrc2", stp_.rrcParaPAN2,
+                   "Relative Radiometric Correction parameter file for PAN2")->check(existanceCheck);
+    psa.add_option("-s,--sections", stp_.sections,
+                   "Section count for stitching parameter calculating")->default_val(STT_DEF_SECTIONS);
+    psa.add_option("-l,--section-lines",
+                   stp_.sectionLines,
+                   "Data lines per section for stitching parameter calculating")->default_val(STT_DEF_SECLINES);
+    psa.add_option("--stitch-overlap",
+                   stp_.overlapCols,
+                   "Overlapped columns of pixel for PAN image stitching")->default_val(STT_DEF_OVERLAPPX);
+    psa.callback([](){
+        PreStitch(stp_);
+    });
+
+    // default command arguments
     app.add_option("--pan", ips_.RawFilePAN, "PAN raw image file path")->check(existanceCheck);
     app.add_option("--mss", ips_.RawFileMSS, "MSS raw image file path")->check(existanceCheck);
     app.add_flag  ("--rrc,!--no-rrc", ips_.doRRC, "whether or not do Relative Radiometric Correction, default is to do it");
@@ -94,17 +132,13 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
                    ips_.IBPA_OverlapLines,
                    xs("overlapped lines for each sibling portion during inter-band pixel alignment processing, "
                       "default is %d", IBPA_DEFAULT_LINEOVERLAP));
+    
+    app.callback([](){
+        DefaultAction(ips_);
+    });
 
     try {
         app.parse(argc, argv);
-        if (ips_.doRRC
-            &&(ips_.RRCParaPAN   .length() == 0
-            || ips_.RRCParaMSS[0].length() == 0
-            || ips_.RRCParaMSS[1].length() == 0
-            || ips_.RRCParaMSS[2].length() == 0
-            || ips_.RRCParaMSS[3].length() == 0)) {
-            throw std::invalid_argument("RRC parameter file needed");
-        }
         return 0;
     } catch (const CLI::Success &e) {
         return app.exit(e) + 255;
@@ -113,27 +147,45 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
     }
 }
 
+void PreStitch(const StitchParams & stp) {
+    Stitcher stt(stp.rawFilePAN1,
+                 stp.rawFilePAN2,
+                 stp.rrcParaPAN1,
+                 stp.rrcParaPAN2,
+                 stp.sections,
+                 stp.sectionLines,
+                 stp.overlapCols);
+    stt.PreStitch();
+}
+
+void DefaultAction(const InputParameters & ip) {
+    if (ip.doRRC
+        &&(ip.RRCParaPAN   .length() == 0
+        || ip.RRCParaMSS[0].length() == 0
+        || ip.RRCParaMSS[1].length() == 0
+        || ip.RRCParaMSS[2].length() == 0
+        || ip.RRCParaMSS[3].length() == 0)) {
+        throw std::invalid_argument("RRC parameter file needed");
+    }
+    GDALAllRegister();
+    PreProcessor pp(  ip.RawFilePAN
+                    , ip.RawFileMSS
+                    , ip.RRCParaPAN
+                    , ip.RRCParaMSS);
+    pp.LoadPAN();
+    pp.LoadMSS();
+    
+    if (ip.doRRC) pp.DoRRC();
+    if (ip.outputRrcPanTiff) pp.WriteRRCedPAN_TIFF(ip.IBPA_LineOffset);
+    //pp.WriteRRCedMSS();
+    
+    pp.CalcInterBandCorrelation(ip.IBCOR_Slices, ip.IBCOR_Sections);
+    pp.DoInterBandAlignment(ip.IBPA_BatchLines, ip.IBPA_LineOffset, ip.IBPA_OverlapLines);
+}
+
 int main(int argc, const char * argv[]) {
     try {
-        int e = ParseInputParametersFromCommandLineArguments(argc, argv);
-        if (e != 0) return e;
-        
-        GDALAllRegister();
-        PreProcessor pp(  ips_.RawFilePAN
-                        , ips_.RawFileMSS
-                        , ips_.RRCParaPAN
-                        , ips_.RRCParaMSS);
-        pp.LoadPAN();
-        pp.LoadMSS();
-        
-        if (ips_.doRRC) pp.DoRRC();
-        if (ips_.outputRrcPanTiff) pp.WriteRRCedPAN_TIFF(ips_.IBPA_LineOffset);
-        //pp.WriteRRCedMSS();
-        
-        pp.CalcInterBandCorrelation(ips_.IBCOR_Slices, ips_.IBCOR_Sections);
-        pp.DoInterBandAlignment(ips_.IBPA_BatchLines, ips_.IBPA_LineOffset, ips_.IBPA_OverlapLines);
-        
-        return 0;
+        return ParseInputParametersFromCommandLineArguments(argc, argv);
     } catch (std::exception & ex) {
         printf("FATAL ERROR: %s.\n", ex.what());
         return 254;

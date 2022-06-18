@@ -9,9 +9,7 @@
 #define preproc_h
 
 #include <stdio.h>
-#include <sys/stat.h>
 #include <algorithm>
-#include <filesystem>
 
 #include <opencv2/core/mat.hpp>
 #include <opencv2/imgproc.hpp>
@@ -20,13 +18,9 @@
 #include <gdal_priv.h>
 
 #include "oipshared.h"
-#include "toolbox.h"
+#include "imageop.h"
 BEGIN_NS(OIP)
 
-struct RRCParam {
-    double k;
-    double b;
-};
 struct InterBandShift {
     double dx;
     double dy;
@@ -57,37 +51,16 @@ public:
     }
     
     void LoadPAN() {
-        OLOG("Reading PAN raw file content from `%s' ...", mPanFile.c_str());
-        off_t size = 0;
-        stop_watch::rst();
-        mImagePAN = (uint16_t *)ReadFileContent(mPanFile.c_str(), size);
-        if (size != mSizePAN) {
-            throw std::runtime_error(xs("PAN file size(%lld) doesn't match with read byte count(%lld)", mSizePAN, size).s);
-        }
-        auto es = stop_watch::tik().ellapsed;
-        OLOG("ReadPAN(): %s bytes read in %s seconds (%s MBps).",
-             comma_sep(size).sep(),
-             comma_sep(es).sep(),
-             comma_sep(size/es/1024.0/1024.0).sep());
+        OLOG("Loading PAN image ...");
+        mImagePAN = (uint16_t *)IMO::LoadRawImage(mPanFile, mSizePAN);
     }
     
     void LoadMSS() {
         OLOG("Reading MSS raw file content from `%s' ...", mMssFile.c_str());
-        
-        off_t size = 0;
-        stop_watch::rst();
-        scoped_ptr<uint16_t> mssMixed = (uint16_t *)ReadFileContent(mMssFile.c_str(), size);
-        if (size != mSizeMSS) {
-            throw std::runtime_error(xs("MSS file size(%lld) doesn't match with read byte count(%lld)", mSizeMSS, size).s);
-        }
-        auto es = stop_watch::tik().ellapsed;
-        OLOG("ReadMSS(): %s bytes read in %s seconds (%s MBps).",
-             comma_sep(size).sep(),
-             comma_sep(es).sep(),
-             comma_sep(size/es/1024.0/1024.0).sep());
+        scoped_ptr<uint16_t> mssMixed = (uint16_t *)IMO::LoadRawImage(mMssFile, mSizeMSS);
         
         // split MSS 4 bands
-        OLOG("ReadMSS(): splitting %d bands ...", MSS_BANDS);
+        OLOG("Splitting %d bands of MSS image ...", MSS_BANDS);
         int bandBytesPerLine = PIXELS_PER_LINE * BYTES_PER_PIXEL / MSS_BANDS;
         int bandPixelsPerLine = PIXELS_PER_LINE / MSS_BANDS; // MSS_BANDS: should always divisible by PIXELS_PER_LINE
         for (int i = 0; i < MSS_BANDS; ++i) {
@@ -102,10 +75,10 @@ public:
                        bandBytesPerLine);
             }
         }
-        es = stop_watch::tik().ellapsed;
+        auto es = stop_watch::tik().ellapsed;
         OLOG("ReadMSS(): split done in %s seconds (%s MBps).",
              comma_sep(es).sep(),
-             comma_sep(size/es/1024.0/1024.0).sep());
+             comma_sep(mSizeMSS/es/1024.0/1024.0).sep());
     }
     
     void UnloadPAN() {
@@ -122,9 +95,9 @@ public:
     void WriteRRCedPAN() {
         OLOG("Writing RRC-ed PAN image as RAW file ...");
         
-        auto saveFilePath = BuildOutputFilePath(mPanFile, ".RRC");
+        auto saveFilePath = IMO::BuildOutputFilePath(mPanFile, RRC_STEM_EXT);
         stop_watch::rst();
-        WriteBufferToFile((const char *)mImagePAN.get(), mSizePAN, saveFilePath);
+        IMO::WriteBufferToFile((const char *)mImagePAN.get(), mSizePAN, saveFilePath);
         auto es = stop_watch::tik().ellapsed;
         
         OLOG("Written to file [%s].", saveFilePath.c_str());
@@ -135,7 +108,7 @@ public:
     
     void WriteRRCedPAN_TIFF(int lineOffset) {
         GDALDriver * driverGeotiff = GetGDALDriverManager()->GetDriverByName("GTiff");
-        auto saveFilePath = BuildOutputFilePath(mPanFile, ".RRC", ".TIFF");
+        auto saveFilePath = IMO::BuildOutputFilePath(mPanFile, RRC_STEM_EXT, TIFF_FILE_EXT);
         
         int rows = (int)(mLinesPAN - lineOffset);
         int cols = PIXELS_PER_LINE;
@@ -166,9 +139,9 @@ public:
         OLOG("Writing RRC-ed PAN image as RAW file ...");
         
         for (int b = 0; b < MSS_BANDS; ++b) {
-            auto saveFilePath = BuildOutputFilePath(mMssFile, xs(".RRCB%d", b));
+            auto saveFilePath = IMO::BuildOutputFilePath(mMssFile, xs(RRC_STEM_EXT "B%d", b));
             stop_watch::rst();
-            WriteBufferToFile((const char *)mImageBandMSS[b].get(), mSizeMSS / MSS_BANDS, saveFilePath);
+            IMO::WriteBufferToFile((const char *)mImageBandMSS[b].get(), mSizeMSS / MSS_BANDS, saveFilePath);
             auto es = stop_watch::tik().ellapsed;
             
             OLOG("Written to file [%s].", saveFilePath.c_str());
@@ -181,10 +154,10 @@ public:
     void WriteAlignedMSS_RAW() {
         OLOG("Writing aligned MSS image as RAW file ...");
         
-        auto saveFilePath = BuildOutputFilePath(mMssFile, ".IBCOR");
+        auto saveFilePath = IMO::BuildOutputFilePath(mMssFile, ".IBCOR");
         stop_watch::rst();
         //WriteBufferToFile((const char *)mAlignedMSS.get(), mSizeMSS, saveFilePath);
-        WriteBufferToFile((const char *)mAlignedMSS.data, mSizeMSS, saveFilePath);
+        IMO::WriteBufferToFile((const char *)mAlignedMSS.data, mSizeMSS, saveFilePath);
         auto es = stop_watch::tik().ellapsed;
         
         OLOG("Written to file [%s].", saveFilePath.c_str());
@@ -196,7 +169,7 @@ public:
     void WriteAlignedMSS_TIFF() {
         OLOG("Writing aligned MSS image as TIFF file ...");
         
-        auto saveFilePath = BuildOutputFilePath(mMssFile, ".ALIGNED", ".TIFF");
+        auto saveFilePath = IMO::BuildOutputFilePath(mMssFile, IBPA_STEM_EXT, TIFF_FILE_EXT);
         // cv::Mat imageData((int)mLinesMSS, PIXELS_PER_LINE, CV_16U, mAlignedMSS.get());
         // cv::Mat imageData(rows, PIXELS_PER_LINE, CV_16U, mAlignedMSS.get());
         cv::Mat & imageData = mAlignedMSS;
@@ -223,7 +196,7 @@ public:
         // 1. PAN image RRC
         OLOG("Begin inplace RRC for PAN data ... ");
         stop_watch::rst();
-        InplaceRRC(mImagePAN.get(), PIXELS_PER_LINE, (int)mLinesPAN, mRRCParamPAN);
+        IMO::InplaceRRC(mImagePAN.get(), PIXELS_PER_LINE, (int)mLinesPAN, mRRCParamPAN);
         auto es = stop_watch::tik().ellapsed;
         OLOG("RRC for PAN done in %s seconds (%s MBps).",
              comma_sep(es).sep(),
@@ -233,7 +206,7 @@ public:
         for (int i = 0; i < MSS_BANDS; ++i) {
             OLOG("Begin inplace RRC for MSS band %d ... ", i);
             stop_watch::rst();
-            InplaceRRC(mImageBandMSS[i].get(), PIXELS_PER_LINE / MSS_BANDS, (int)mLinesMSS, mRRCParamMSS[i]);
+            IMO::InplaceRRC(mImageBandMSS[i].get(), PIXELS_PER_LINE / MSS_BANDS, (int)mLinesMSS, mRRCParamMSS[i]);
             es = stop_watch::tik().ellapsed;
             OLOG("RRC done for MSS band %d in %s seconds (%s MBps).",
                  i,
@@ -506,7 +479,7 @@ protected:
             int fc = 0;
             InterBandShift * shifts = mBandShift[b];
             for (int i = 0; i < slices * sections; ++i) {
-                if (shifts[i].rs < IBCV_SHRESHHOLD) {
+                if (shifts[i].rs < IBCV_DEF_THRESHOLD) {
                     shifts[i].dx = nan;
                     shifts[i].dy = nan;
                 } else {
@@ -533,7 +506,7 @@ protected:
             scoped_ptr<double> yvals  = new double[crvPerBand];
             for (int i = 0; i < crvPerBand; ++i) {
                 const InterBandShift & ibs = mBandShift[b][i];
-                if (ibs.rs >= IBCV_SHRESHHOLD) {
+                if (ibs.rs >= IBCV_DEF_THRESHOLD) {
                     cxvals[vvi] = ibs.cx;
                     xvals [vvi] = ibs.dx;
                     yvals [vvi] = ibs.dy;
@@ -560,53 +533,26 @@ protected:
         }
     }
     
-    std::string BuildOutputFilePath(const std::string & templatePath
-                                    , const std::string & stemExtension
-                                    , const char * replaceExtension = NULL) {
-        auto cd = std::filesystem::current_path();
-        std::filesystem::path tmplPath = templatePath;
-        auto outputFilePath = cd / tmplPath.stem();
-        outputFilePath += stemExtension;
-        outputFilePath += replaceExtension ? replaceExtension : tmplPath.extension();
-        return outputFilePath.string();
-    }
-    
-    void InplaceRRC(uint16_t * buff, int w, int h, const RRCParam * rrcParam) {
-        for (size_t y = 0; y < h; ++y) {
-            for (size_t x = 0; x < w; ++x) {
-                size_t idx = w * y + x;
-                uint16_t src = buff[idx];
-                uint16_t dst = (uint16_t)(rrcParam[x].k * src + rrcParam[x].b);
-                buff[idx] = dst;
-            }
-        }
-    }
-    
     void LoadRRCParamFiles() {
         int rrcLinesPAN = PIXELS_PER_LINE;
         int rrcLinesMSS = rrcLinesPAN / MSS_BANDS;
-        mRRCParamPAN   = LoadRRCParamFile(mRrcPanFile.c_str(), rrcLinesPAN);
+        mRRCParamPAN   = ImageOperations::LoadRRCParamFile(mRrcPanFile.c_str(), rrcLinesPAN);
         for (int i = 0; i < MSS_BANDS; ++i) {
-            mRRCParamMSS[i] = LoadRRCParamFile(mRrcMssBndFile[i].c_str(), rrcLinesMSS);
+            mRRCParamMSS[i] = ImageOperations::LoadRRCParamFile(mRrcMssBndFile[i].c_str(), rrcLinesMSS);
         }
         OLOG("LoadRRCParamFiles(): OK.\n");
     }
     
     void CheckFilesAttributes() {
-        struct stat st = { 0 };
-        
         // PAN file
         OLOG("Checking PAN raw file attributes ...");
-        if (stat(mPanFile.c_str(), &st)) throw errno_error("stat() call for PAN file failed");
-        mSizePAN = st.st_size;
+        mSizePAN = ImageOperations::FileSize(mPanFile);
         mPixelsPAN = mSizePAN / BYTES_PER_PIXEL;
         mLinesPAN = mSizePAN / (PIXELS_PER_LINE * BYTES_PER_PIXEL);
         
         // MSS file
         OLOG("Checking MSS raw file attributes ...");
-        memset(&st, 0, sizeof(struct stat));
-        if (stat(mMssFile.c_str(), &st)) throw errno_error("stat() call for MSS file failed");
-        mSizeMSS = st.st_size;
+        mSizeMSS = ImageOperations::FileSize(mMssFile);
         mPixelsMSS = mSizeMSS / BYTES_PER_PIXEL;
         mLinesMSS = mSizeMSS / (PIXELS_PER_LINE * BYTES_PER_PIXEL);
         
@@ -617,102 +563,6 @@ protected:
             throw std::runtime_error(xs("PAN file size invalid: should be multiplies of %d", (PIXELS_PER_LINE * BYTES_PER_PIXEL)).s);
 
         OLOG("CheckFilesAttributes(): OK.");
-    }
-    
-    static RRCParam * LoadRRCParamFile(const char * paramFilePath, int expectedLines) {
-        OLOG("Loading RRC paramter from file `%s' ...", paramFilePath);
-        scoped_ptr<FILE, FileDtor> f = fopen(paramFilePath, "rb");
-        if (f.isNull()) throw errno_error("open RRC Param file failed");
-        
-        const int bn = 1024;
-        char buff[bn];
-        
-        // first line is `1'
-        if (fgets(buff, bn, f) == NULL) throw errno_error("LoadRRCParamFile([1]): read file content failed");
-#ifdef DEBUG
-        ToolBox::ChompChars(buff);
-        assert(strcmp(buff, "1") == 0);
-#endif
-        
-        // second line should be image lines
-        if (fgets(buff, bn, f) == NULL) {
-            throw errno_error("LoadRRCParamFile([2]): read file content failed");
-        }
-        int lines = atoi(buff);
-        if (lines != expectedLines) {
-            throw std::runtime_error(xs("LoadRRCParamFile([2]): expected %d lines while %d found in file content", expectedLines, lines).s);
-        }
-        
-        // third line should be `0'
-        if (fgets(buff, bn, f) == NULL) throw errno_error("LoadRRCParamFile([3]): read file content failed");
-#ifdef DEBUG
-        ToolBox::ChompChars(buff);
-        assert(strcmp(buff, "0") == 0);
-#endif
-        
-        // following lines are of RRC parameter of k & b
-        int index = 0;
-        double k = .0;
-        double b = .0;
-        scoped_ptr<RRCParam, array_dtor<RRCParam>> params = new RRCParam[expectedLines];
-        
-        for (; fgets(buff, bn, f); ++index) {
-            if (sscanf(buff, " %lf , %lf", &k, &b) != 2) {
-                throw std::runtime_error(xs("line #%d of RRC param file [%s] found invalid", index, paramFilePath).s);
-            }
-            params[index].k = k;
-            params[index].b = b;
-        }
-        
-        if (index != expectedLines) {
-            throw std::runtime_error(xs("RRC Param file [%s] invalid: %d lines of param expected, %d lines parsed."
-                                        , paramFilePath, expectedLines, index).s);
-        }
-
-        OLOG("LoadRRCParamFile(): loaded.");
-        return params.detach();
-    }
-    
-
-    static char * ReadFileContent(const char * filePath, off_t & size) {
-        if (filePath == nullptr) throw std::invalid_argument("invalid or empty file path");
-        
-        scoped_ptr<FILE, FileDtor> f = fopen(filePath, "rb");
-        if (f.isNull()) throw std::invalid_argument(xs("cannot open file [%s]: %d", filePath, errno).s);
-        
-        if (fseek(f, 0, SEEK_END)) throw std::invalid_argument(xs("ReadFileContent(): seek2end failed: %d", errno).s);
-        off_t fsize = ftello(f);
-        if (fseek(f, 0, SEEK_SET)) throw std::invalid_argument(xs("ReadFileContent(): rewind failed: %d", errno).s);
-        
-        scoped_ptr<char, new_dtor<char>> buff = new char[fsize];
-        memset(buff, 0, fsize);
-        const int unit = 8 * 1024 * 1024; // 8MB
-        
-        for (char * p = buff;;) {
-            auto rn = fread(p, 1, unit, f);
-            p += rn;
-            if (rn == 0) {
-                size = p - buff;
-                break;
-            }
-        }
-        
-        return buff.detach();
-    }
-    
-    static size_t WriteBufferToFile(const char * buff, size_t size, const std::string & saveFilePath) {
-        scoped_ptr<FILE, FileDtor> f = fopen(saveFilePath.c_str(), "wb");
-        if (f.isNull()) throw std::runtime_error(xs("open file [%s] failed: %", saveFilePath.c_str(), errno).s);
-        
-        size_t unit = (int)std::min((size_t)8 * 1024 * 1024, size); // 8MB
-        size_t written = 0;
-        for (const char * p = buff; written < size; ) {
-            auto wb = fwrite(p, 1, std::min(unit, size-written), f);
-            if (wb == 0) throw std::runtime_error(xs("write file failed: %d, %lld bytes written so far", errno, written).s);
-            written += wb;
-            p += wb;
-        }
-        return written;
     }
     
 private:

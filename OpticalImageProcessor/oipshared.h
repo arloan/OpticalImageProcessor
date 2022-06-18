@@ -30,17 +30,31 @@
 #define PIXELS_PER_MSSBAND  (PIXELS_PER_LINE/MSS_BANDS)
 #define CORRELATION_LINES   16000
 
-#define IBCV_SHRESHHOLD     0.4 // valid Inter Band Correlation Value shreshhold
+#define IBCV_DEF_THRESHOLD  0.4 // valid Inter Band Correlation Value threshold
 #define IBCV_MIN_COUNT      5   // minimum IBC value count before polynomial fitting
 #define IBCV_DEF_SECTIONS   3
 #define IBCV_DEF_SLICES     10
 #define IBCV_MIN_SLICES     8
 
+// Inter-Band sPectrum Alignment
 #define IBPA_DEFAULT_LINEOFFSET     0
 #define IBPA_DEFAULT_BATCHLINES     20000
 #define IBPA_DEFAULT_LINEOVERLAP    520
 #define IBPA_MAX_LINEOVERLAP        3000
 #define IBPA_MIN_PROCESSLINES       1500
+
+// STITCHING
+#define STT_DEF_SECTIONS    10
+#define STT_DEF_SECLINES    16000
+#define STT_DEF_OVERLAPPX   200
+#define STT_DEF_PHCTHRHLD   0.4 // phaseCorrelate response threshold
+
+#define STT_STEM_EXT        ".STT"
+#define PRESTT_STEM_EXT     ".PRESTT"
+#define RRC_STEM_EXT        ".RRC"
+#define IBPA_STEM_EXT       ".ALIGNED"
+#define TIFF_FILE_EXT       ".TIFF"
+#define RAW_FILE_EXT        ".RAW"
 
 #define BEGIN_NS(ns) namespace ns {
 #define END_NS }
