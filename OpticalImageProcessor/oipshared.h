@@ -26,8 +26,10 @@
 
 #define BYTES_PER_PIXEL     2       // Little Endian
 #define PIXELS_PER_LINE     12288
+#define BYTES_PER_PANLINE   (PIXELS_PER_LINE * BYTES_PER_PIXEL)
 #define MSS_BANDS           4
 #define PIXELS_PER_MSSBAND  (PIXELS_PER_LINE/MSS_BANDS)
+#define BYTES_PER_MSSBAND   (BYTES_PER_PIXEL * PIXELS_PER_MSSBAND)
 #define CORRELATION_LINES   16000
 
 #define IBCV_DEF_THRESHOLD  0.4 // valid Inter Band Correlation Value threshold

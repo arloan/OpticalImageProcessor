@@ -53,13 +53,17 @@ struct StitchParams {
     int sections;
     int sectionLines;
     int overlapCols;
+    int edgeCols;
+    
+    bool doRRC;
+    bool onlyParamCalc;
 };
 
 InputParameters ips_;
 StitchParams stp_;
 
-void PreStitch(const StitchParams & stp);
-void DefaultAction(const InputParameters & ip);
+void PreStitch();
+void DefaultAction();
 
 int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) {
     CLI::App app("Optical Satellite Image Pre-Processing/Processing Utility", "OpticalImageProcessor");
@@ -72,9 +76,10 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
     };
     
     // `prestitch` sub command arguments
-    CLI::App & psa = * app.add_subcommand("prestitch", "Do preparation parameters calculting for CMOS stitching");
+    CLI::App & psa = * app.add_subcommand("prestitch",
+                                          "Do preparation parameters calculating & PAN2 pixel correction for CMOS stitching");
     psa.add_option("--pan1", stp_.rawFilePAN1, "PAN raw image file of CMOS1")->check(existanceCheck);
-    psa.add_option("--pan2", stp_.rawFilePAN1, "PAN raw image file of CMOS2")->check(existanceCheck);
+    psa.add_option("--pan2", stp_.rawFilePAN2, "PAN raw image file of CMOS2")->check(existanceCheck);
     psa.add_option("--rrc1", stp_.rrcParaPAN1,
                    "Relative Radiometric Correction parameter file for PAN1")->check(existanceCheck);
     psa.add_option("--rrc2", stp_.rrcParaPAN2,
@@ -87,8 +92,23 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
     psa.add_option("--stitch-overlap",
                    stp_.overlapCols,
                    "Overlapped columns of pixel for PAN image stitching")->default_val(STT_DEF_OVERLAPPX);
+    psa.add_option("-e,--edge-cols", stp_.edgeCols,
+                   "Ignored edge cols (right edge of PAN1 & left edge of PAN2) "
+                   "when calculating stitching parameter, default 0")->default_val(0)->check([](const std::string & v) {
+        int iv = atoi(v.c_str());
+        if (iv < 0 || iv > stp_.overlapCols / 2) {
+            return "invalid edge cols";
+        }
+        return "";
+    });
+    
+    psa.add_flag  ("-r,--do-rrc",stp_.doRRC,
+                   "Do Relative Radiometric Correction for PAN before pre-stitch")->default_val(false);
+    psa.add_flag  ("-c,--only-calulate", stp_.onlyParamCalc,
+                   "Only do pre-stitch parameter calulation, do not output pixel-adjusted PAN file.")->default_val(false);
+    
     psa.callback([](){
-        PreStitch(stp_);
+        PreStitch();
     });
 
     // default command arguments
@@ -134,7 +154,7 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
                       "default is %d", IBPA_DEFAULT_LINEOVERLAP));
     
     app.callback([](){
-        DefaultAction(ips_);
+        DefaultAction();
     });
 
     try {
@@ -147,7 +167,8 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
     }
 }
 
-void PreStitch(const StitchParams & stp) {
+void PreStitch() {
+    const StitchParams & stp = stp_;
     Stitcher stt(stp.rawFilePAN1,
                  stp.rawFilePAN2,
                  stp.rrcParaPAN1,
@@ -155,10 +176,20 @@ void PreStitch(const StitchParams & stp) {
                  stp.sections,
                  stp.sectionLines,
                  stp.overlapCols);
-    stt.PreStitch();
+    
+    if (stp.doRRC) {
+        stt.DoRRC();
+    }
+    
+    stt.CalcSttParameters();
+    
+    if (!stp.onlyParamCalc) {
+        stt.PreStitch();
+    }
 }
 
-void DefaultAction(const InputParameters & ip) {
+void DefaultAction() {
+    const InputParameters & ip = ips_;
     if (ip.doRRC
         &&(ip.RRCParaPAN   .length() == 0
         || ip.RRCParaMSS[0].length() == 0

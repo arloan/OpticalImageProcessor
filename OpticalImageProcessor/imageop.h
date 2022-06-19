@@ -53,22 +53,23 @@ public:
         scoped_ptr<FILE, FileDtor> f = fopen(filePath.c_str(), "rb");
         if (f.isNull()) throw std::invalid_argument(xs("cannot open file [%s]: %d", filePath.c_str(), errno).s);
         
-        size_t read_size = total;
+        size_t want_size = total;
         if (total == 0) {
             if (fseek(f, 0, SEEK_END)) throw std::invalid_argument(xs("ReadFileContent(): seek2end failed: %d", errno).s);
-            read_size = ftello(f) - offset;
+            want_size = ftello(f) - offset;
         }
         if (fseek(f, offset, SEEK_SET)) throw std::invalid_argument(xs("ReadFileContent(): rewind failed: %d", errno).s);
         
-        if (buff == NULL) buff = new char[read_size];
-        // memset(buff, 0, read_size);
+        if (buff == NULL) buff = new char[want_size];
+
         const int unit = 8 * 1024 * 1024; // 8MB
-        
+        size_t rb = 0;
         for (char * p = buff;;) {
-            auto rn = fread(p, 1, unit, f);
+            auto rn = fread(p, 1, std::min((size_t)unit, (size_t)(want_size - rb)), f);
             p += rn;
-            if (rn == 0) {
-                size = p - buff;
+            rb += rn;
+            if (rn == 0 || rb == want_size) {
+                size = rb;
                 break;
             }
         }
@@ -191,15 +192,21 @@ public:
                                 const std::string & rrc,
                                 const std::string saveRaw = "",
                                 bool keepBuffer = false) {
-        size_t size = 0;
+        size_t size = FileSize(raw);
         scoped_ptr<uint16_t> image = (uint16_t *)LoadRawImage(raw, 0, 0, size);
         
-        OLOG("Do inplace RRC ...");
         int lines = (int)(size / (pixelPerLine * BYTES_PER_PIXEL));
         scoped_ptr<RRCParam> rrcParam = LoadRRCParamFile(rrc.c_str(), pixelPerLine);
-        InplaceRRC(image, pixelPerLine, lines, rrcParam);
-        OLOG("Done.");
         
+        OLOG("Do inplace RRC ...");
+        stop_watch::rst();
+        InplaceRRC(image, pixelPerLine, lines, rrcParam);
+        auto es = stop_watch::tik().ellapsed;
+        OLOG("Done for %s bytes in %s seconds (%s MBps).",
+             comma_sep(size).sep(),
+             comma_sep(es).sep(),
+             comma_sep(size/es/(1024.0*1024.0)).sep());
+
         if (saveRaw.length() > 0) {
             OLOG("Write RRC result as file \"%s\" ...", saveRaw.c_str());
             stop_watch::rst();
