@@ -40,6 +40,7 @@ public:
         if (s1 != s2) {
             throw std::invalid_argument("PAN1 size doesn't match PAN2 size");
         }
+        mSizePAN = s1;
         mLinesPAN = (int)(s1 / BYTES_PER_PANLINE);
         OLOG("PAN: %s lines total.", comma_sep(mLinesPAN).sep());
         
@@ -48,46 +49,60 @@ public:
     }
     
     int PreStitch() {
-        mPreSttFilePAN2 = IMO::BuildOutputFilePath(mFilePAN2, PRESTT_STEM_EXT);
+        mPreSttFilePAN2 = IMO::BuildOutputFilePath(mRrcFilePAN2, PRESTT_STEM_EXT);
         scoped_ptr<FILE, FileDtor> fPan2 = fopen(mRrcFilePAN2.c_str(), "rb");
         scoped_ptr<FILE, FileDtor> fPreStt2 = fopen(mPreSttFilePAN2.c_str(), "wb");
         
         cv::Mat1w buff(REMAP_SECTION_ROWS, PIXELS_PER_LINE);
-        cv::Mat1d mapx(REMAP_SECTION_ROWS, PIXELS_PER_LINE, mDeltaX);
-        cv::Mat1d mapy(REMAP_SECTION_ROWS, PIXELS_PER_LINE, mDeltaY);
+        cv::Mat1f mapx(REMAP_SECTION_ROWS, PIXELS_PER_LINE);
+        cv::Mat1f mapy(REMAP_SECTION_ROWS, PIXELS_PER_LINE);
+        
+        OLOG("Creating mapX & mapY matrix ...");
+        for (int y = 0; y < REMAP_SECTION_ROWS; ++y) {
+            for (int x = 0; x < PIXELS_PER_LINE; ++x) {
+                int idx = y * PIXELS_PER_LINE + x;
+                mapx.at<float>(idx) = x + mDeltaX;
+                mapy.at<float>(idx) = y + mDeltaY;
+            }
+        }
+        OLOG("Created.");
         
         const size_t row_bytes = BYTES_PER_PANLINE;
         auto pick_src_image = [&](int row_offset, int rows) {
+            OLOG("Picking remap src data at row offset %s ...", comma_sep(row_offset).sep());
             fseek(fPan2, row_offset * row_bytes, SEEK_SET);
             if (fread(buff.data, row_bytes, rows, fPan2) < rows) {
                 throw std::runtime_error("PreStitch(): not enough data read from RRC PAN2 raw file");
             }
+            OLOG("Picked.");
             return buff;
         };
         auto prepare_mapx = [&](int,int) { return mapx; };
         auto prepare_mapy = [&](int,int) { return mapy; };
-        auto write_remapped_data = [&](cv::Mat mapped) {
+        auto write_remapped_data = [&](cv::Mat mapped, int row_offset) {
+            OLOG("Received remap result data, writing to output file ...");
             if (fwrite(mapped.data, row_bytes, mapped.rows, fPreStt2) != mapped.rows) {
                 throw std::runtime_error("PreStitch(): not enough data written to pre-stitched PAN2 raw file");
             }
+            OLOG("Written.");
         };
         
         int ucut = mDeltaY >= 0.0 ? 0 : (int)mDeltaY + 1;
         int bcut = mDeltaY >= 0.0 ? (int)mDeltaY + 1 : 0;
-        // write empty data to upper&bottom cut zone to keep file size the same as PAN1
-        char empty[BYTES_PER_PANLINE] = { 0 };
-        for (int i = 0; i < ucut; ++i) {
-            fwrite(empty, BYTES_PER_PANLINE, 1, fPreStt2);
-        }
+        stop_watch sw;
         int imageLines = IMO::SectionaryRemap(mLinesPAN, ucut, bcut,
                                               pick_src_image,
                                               prepare_mapx,
                                               prepare_mapy,
                                               write_remapped_data,
-                                              cv::INTER_CUBIC);
-        for (int i = 0; i < bcut; ++i) {
-            fwrite(empty, BYTES_PER_PANLINE, 1, fPreStt2);
-        }
+                                              write_remapped_data,
+                                              write_remapped_data);
+        auto es = sw.tick().ellapsed;
+        OLOG("Pre-stitched PAN2 written to file '%s'.", mPreSttFilePAN2.c_str());
+        OLOG("%s bytes processed & written in %s seconds (%s MBps).",
+             comma_sep(mSizePAN).sep(),
+             comma_sep(es).sep(),
+             comma_sep(mSizePAN/es/(1024.0*1024.0)).sep());
         return imageLines;
     }
     
@@ -98,7 +113,7 @@ public:
         IMO::DoRRC4RAW(mFilePAN2, PIXELS_PER_LINE, mParamFileRRC2, mRrcFilePAN2);
     }
     
-    void CalcSttParameters(int edgeCols = 0) {
+    void CalcSttParameters(int edgeCols = STT_DEF_EDGECOLS) {
         int gapLines = (mLinesPAN - mSections * mLinePerSection) / (mSections + 1);
         int stepLines = gapLines + mLinePerSection;
         int sectionBytes = mLinePerSection * BYTES_PER_PANLINE;
@@ -113,6 +128,7 @@ public:
         
         OLOG("Calculating stitching delta values ...");
         OLOG("| offset |  delta x |  delta y | response | r |");
+        OLOG("-----------------------------------------------");
         for (int i = 0; i < mSections; ++i) {
             int line_offset = gapLines + i * stepLines;
             size_t offset = (size_t)line_offset * BYTES_PER_PANLINE;
@@ -162,6 +178,8 @@ private:
     double mDeltaX;
     double mDeltaY;
     double mResponse;
+
+    size_t mSizePAN;
 
     int mSections;
     int mLinePerSection;

@@ -50,6 +50,7 @@
 #define STT_DEF_SECLINES    16000
 #define STT_DEF_OVERLAPPX   200
 #define STT_DEF_PHCTHRHLD   0.4 // phaseCorrelate response threshold
+#define STT_DEF_EDGECOLS    0
 
 #define STT_STEM_EXT        ".STT"
 #define PRESTT_STEM_EXT     ".PRESTT"

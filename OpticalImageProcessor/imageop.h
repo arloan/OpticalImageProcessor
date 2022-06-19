@@ -15,7 +15,6 @@
 
 BEGIN_NS(OIP)
 
-const int REMAP_MIN_ROWS = 5;
 const int REMAP_ROW_GUARD = 32767;
 const int REMAP_SECTION_ROWS = 30000;
 
@@ -227,8 +226,10 @@ public:
                                std::function<cv::Mat(int row_offset, int rows)>get_src,
                                std::function<cv::Mat(int row_offset, int rows)>get_mapx,
                                std::function<cv::Mat(int row_offset, int rows)>get_mapy,
-                               std::function<void(cv::Mat)>concat_dst,
-                               int interpolation,
+                               std::function<void(const cv::Mat &data, int row_offset)>write_upper,
+                               std::function<void(const cv::Mat &data, int row_offset)>write_dst,
+                               std::function<void(const cv::Mat &data, int row_offset)>write_bottom,
+                               int interpolation = cv::INTER_CUBIC,
                                int border_mode = cv::BORDER_CONSTANT,
                                const cv::Scalar & border_value = cv::Scalar()) {
         
@@ -238,22 +239,33 @@ public:
         
         int total_cut = upper_cut + bottom_cut;
         int row_offset = 0;
+        cv::Mat dst;
         for (int s = 0; ; ++s) {
             int rows = std::min(REMAP_SECTION_ROWS, total_rows - row_offset);
-            if (rows < REMAP_MIN_ROWS + total_cut) {
+            if (rows <=  total_cut) {
                 break;
             }
             
             cv::Mat src  = get_src (row_offset, rows);
             cv::Mat mapx = get_mapx(row_offset, rows);
             cv::Mat mapy = get_mapy(row_offset, rows);
-            cv::Mat dst;
             cv::remap(src, dst, mapx, mapy, interpolation, border_mode, border_value);
             
-            concat_dst(dst.rowRange(upper_cut, rows - bottom_cut));
+            if (s == 0 && upper_cut > 0) {
+                cv::Mat cut = dst.rowRange(0, upper_cut);
+                write_upper(cut, 0);
+            }
+            
+            write_dst(dst.rowRange(upper_cut, rows - bottom_cut), row_offset);
             row_offset += rows - total_cut;
         }
-        return row_offset - upper_cut;
+        
+        if (bottom_cut > 0) {
+            cv::Mat cut = dst.rowRange(dst.rows - bottom_cut, dst.rows);
+            write_bottom(cut, row_offset);
+        }
+        
+        return row_offset;
     }
 };
 

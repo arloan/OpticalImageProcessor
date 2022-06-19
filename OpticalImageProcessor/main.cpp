@@ -57,6 +57,15 @@ struct StitchParams {
     
     bool doRRC;
     bool onlyParamCalc;
+    
+    StitchParams() :
+        sections(STT_DEF_SECTIONS),
+        sectionLines(STT_DEF_SECLINES),
+        overlapCols(STT_DEF_OVERLAPPX),
+        edgeCols(STT_DEF_EDGECOLS),
+        doRRC(true),
+        onlyParamCalc(false)
+    {}
 };
 
 InputParameters ips_;
@@ -94,7 +103,7 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
                    "Overlapped columns of pixel for PAN image stitching")->default_val(STT_DEF_OVERLAPPX);
     psa.add_option("-e,--edge-cols", stp_.edgeCols,
                    "Ignored edge cols (right edge of PAN1 & left edge of PAN2) "
-                   "when calculating stitching parameter, default 0")->default_val(0)->check([](const std::string & v) {
+                   "when calculating stitching parameter")->default_val(0)->check([](const std::string & v) {
         int iv = atoi(v.c_str());
         if (iv < 0 || iv > stp_.overlapCols / 2) {
             return "invalid edge cols";
@@ -102,10 +111,10 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
         return "";
     });
     
-    psa.add_flag  ("-r,--do-rrc",stp_.doRRC,
-                   "Do Relative Radiometric Correction for PAN before pre-stitch")->default_val(false);
+    psa.add_flag  ("-r,--rrc,!--no-rrc",stp_.doRRC,
+                   "Whether do Relative Radiometric Correction or not for PAN after pre-stitch parameter calclationg");
     psa.add_flag  ("-c,--only-calulate", stp_.onlyParamCalc,
-                   "Only do pre-stitch parameter calulation, do not output pixel-adjusted PAN file.")->default_val(false);
+                   "Only do pre-stitch parameter calulation, do not output pixel-adjusted PAN file.");
     
     psa.callback([](){
         PreStitch();
@@ -153,8 +162,10 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
                    xs("overlapped lines for each sibling portion during inter-band pixel alignment processing, "
                       "default is %d", IBPA_DEFAULT_LINEOVERLAP));
     
-    app.callback([](){
-        DefaultAction();
+    app.callback([&](){
+        if (app.get_subcommands().size() == 0) {
+            DefaultAction();
+        }
     });
 
     try {
@@ -177,13 +188,10 @@ void PreStitch() {
                  stp.sectionLines,
                  stp.overlapCols);
     
-    if (stp.doRRC) {
-        stt.DoRRC();
-    }
-    
     stt.CalcSttParameters();
     
     if (!stp.onlyParamCalc) {
+        if (stp.doRRC) stt.DoRRC();
         stt.PreStitch();
     }
 }
