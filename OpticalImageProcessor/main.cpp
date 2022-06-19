@@ -87,8 +87,8 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
     // `prestitch` sub command arguments
     CLI::App & psa = * app.add_subcommand("prestitch",
                                           "Do preparation parameters calculating & PAN2 pixel correction for CMOS stitching");
-    psa.add_option("--pan1", stp_.rawFilePAN1, "PAN raw image file of CMOS1")->check(existanceCheck);
-    psa.add_option("--pan2", stp_.rawFilePAN2, "PAN raw image file of CMOS2")->check(existanceCheck);
+    psa.add_option("--pan1", stp_.rawFilePAN1, "PAN raw image file of CMOS1")->required()->check(CLI::ExistingFile);
+    psa.add_option("--pan2", stp_.rawFilePAN2, "PAN raw image file of CMOS2")->required()->check(existanceCheck);
     psa.add_option("--rrc1", stp_.rrcParaPAN1,
                    "Relative Radiometric Correction parameter file for PAN1")->check(existanceCheck);
     psa.add_option("--rrc2", stp_.rrcParaPAN2,
@@ -120,6 +120,22 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
         PreStitch();
     });
 
+    // `stitch` sub command
+    std::string image1;
+    std::string image2;
+    std::string outputFile;
+    int foldCols = 0;
+    CLI::App & sta = * app.add_subcommand("stitch",
+                                          "Stitch two SPAN or MSS images.");
+    sta.add_option("--image1", image1, "Left image file path")->required();
+    sta.add_option("--image2", image2, "Right image file path")->required();
+    sta.add_option("-o,--out", outputFile, "Path of the output stitched image file");
+    sta.add_option("-c,--fold-cols", foldCols,
+                   "Folding cols (in pixel) when stitching two images");
+    sta.callback([&]() {
+        Stitcher::Stitch(image1, image2, outputFile, foldCols);
+    });
+    
     // default command arguments
     app.add_option("--pan", ips_.RawFilePAN, "PAN raw image file path")->check(existanceCheck);
     app.add_option("--mss", ips_.RawFileMSS, "MSS raw image file path")->check(existanceCheck);

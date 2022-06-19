@@ -18,6 +18,83 @@ BEGIN_NS(OIP)
 class Stitcher
 {
 public:
+    static std::string Stitch(const std::string & leftImagePath,
+                              const std::string & rightImagePath,
+                              const std::string & outputPath = "",
+                              int foldCols = 0) {
+        std::filesystem::path leftPath  = leftImagePath;
+        std::filesystem::path rightPath = rightImagePath;
+        std::string leftExt = CLI::detail::to_lower( leftPath.extension());
+        std::string rightExt= CLI::detail::to_lower(rightPath.extension());
+        if (leftExt != rightExt) {
+            throw std::invalid_argument("Stitch(): two images should be same type");
+        }
+        if (leftExt != CLI::detail::to_lower(TIFF_FILE_EXT) &&
+            leftExt != CLI::detail::to_lower(RAW_FILE_EXT)) {
+            throw std::invalid_argument("Stitch(): only RAW and TIFF image supported");
+        }
+        
+        std::string stitchedFilePath = outputPath;
+        if (leftExt == CLI::detail::to_lower(RAW_FILE_EXT)) {
+            // TODO:
+            // treat as PAN image files for now
+            size_t szl = IMO::FileSize( leftImagePath);
+            size_t szr = IMO::FileSize(rightImagePath);
+            if (szl != szr) {
+                throw std::invalid_argument(xs("Image sizes not match: left = %s bytes, right = %s bytes",
+                                               comma_sep(szl).sep(),
+                                               comma_sep(szr).sep()).s);
+            }
+            
+            if (outputPath == "") {
+                stitchedFilePath = (std::filesystem::current_path() / "stitched-PAN.RAW").string();
+            }
+            if (foldCols == 0) {
+                foldCols = STT_DEF_OVERLAPPX / 2;
+            }
+            
+            scoped_ptr<FILE, FileDtor> fl = fopen( leftImagePath.c_str(), "rb");
+            scoped_ptr<FILE, FileDtor> fr = fopen(rightImagePath.c_str(), "rb");
+            scoped_ptr<FILE, FileDtor> fo = fopen(stitchedFilePath.c_str(), "wb");
+            
+            int imageLines = (int)(szl / BYTES_PER_PANLINE);
+            int foldBytes = foldCols * BYTES_PER_PIXEL;
+            int outputHalfLineBytes = BYTES_PER_PANLINE - foldBytes;
+            char lineBuff[BYTES_PER_PANLINE];
+            
+            OLOG("Begin stitching two images ...");
+            stop_watch::rst();
+            for (int i = 0; i < imageLines; ++i) {
+                if (fread(lineBuff, BYTES_PER_PANLINE, 1, fl) == 0) {
+                    throw errno_error(xs("read left image file failed at line %d", i).s);
+                }
+                if (fwrite(lineBuff, outputHalfLineBytes, 1, fo) == 0) {
+                    throw errno_error(xs("write stitched image file failed at left half of line %d", i).s);
+                }
+                if (fread(lineBuff, BYTES_PER_PANLINE, 1, fr) == 0) {
+                    throw errno_error(xs("read right image file failed at line %d", i).s);
+                }
+                if (fwrite(lineBuff + foldBytes, outputHalfLineBytes, 1, fo) == 0) {
+                    throw errno_error(xs("write stitched image file failed at right half of line %d", i).s);
+                }
+                if ((i + 1) % 10000 == 0) {
+                    OLOG("%s lines of image data stitched.", comma_sep(i+1).sep());
+                }
+            }
+            auto es = stop_watch::tik().ellapsed;
+            OLOG("%s bytes written in %s seconds (%s MBps).",
+                 comma_sep(szl).sep(),
+                 comma_sep(es).sep(),
+                 comma_sep(szl/es/(1024.0*1024.0)).sep());
+            
+        } else {
+            throw std::runtime_error("TIFF images not handled yet.");
+        }
+        
+        return stitchedFilePath;
+    }
+    
+public:
     Stitcher(const std::string & pan1,
              const std::string & pan2,
              const std::string & rrc1,
