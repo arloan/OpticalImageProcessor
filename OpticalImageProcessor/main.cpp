@@ -30,7 +30,8 @@ struct InputParameters {
     int IBPA_BatchLines;
     int IBPA_OverlapLines;
     
-    bool doRRC;
+    bool doRRC4PAN;
+    bool doRRC4MSS;
     bool outputRrcPanTiff;
     
     InputParameters() :
@@ -39,7 +40,8 @@ struct InputParameters {
         IBPA_LineOffset(IBPA_DEFAULT_LINEOFFSET),
         IBPA_BatchLines(IBPA_DEFAULT_BATCHLINES),
         IBPA_OverlapLines(IBPA_DEFAULT_LINEOVERLAP),
-        doRRC(true),
+        doRRC4PAN(false),
+        doRRC4MSS(true),
         outputRrcPanTiff(false)
     {}
 };
@@ -79,20 +81,15 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
     app.set_version_flag("-v,--version", "1.1");
     app.require_subcommand(0, 1);
     
-    auto existanceCheck = [](const std::string & v) {
-        if (!std::filesystem::exists(v)) return "file not exists";
-        return "";
-    };
-    
     // `prestitch` sub command arguments
     CLI::App & psa = * app.add_subcommand("prestitch",
                                           "Do preparation parameters calculating & PAN2 pixel correction for CMOS stitching");
     psa.add_option("--pan1", stp_.rawFilePAN1, "PAN raw image file of CMOS1")->required()->check(CLI::ExistingFile);
-    psa.add_option("--pan2", stp_.rawFilePAN2, "PAN raw image file of CMOS2")->required()->check(existanceCheck);
+    psa.add_option("--pan2", stp_.rawFilePAN2, "PAN raw image file of CMOS2")->required()->check(CLI::ExistingFile);
     psa.add_option("--rrc1", stp_.rrcParaPAN1,
-                   "Relative Radiometric Correction parameter file for PAN1")->check(existanceCheck);
+                   "Relative Radiometric Correction parameter file for PAN1")->check(CLI::ExistingFile);
     psa.add_option("--rrc2", stp_.rrcParaPAN2,
-                   "Relative Radiometric Correction parameter file for PAN2")->check(existanceCheck);
+                   "Relative Radiometric Correction parameter file for PAN2")->check(CLI::ExistingFile);
     psa.add_option("-s,--sections", stp_.sections,
                    "Section count for stitching parameter calculating")->default_val(STT_DEF_SECTIONS);
     psa.add_option("-l,--section-lines",
@@ -137,46 +134,54 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
     });
     
     // default command arguments
-    app.add_option("--pan", ips_.RawFilePAN, "PAN raw image file path")->check(existanceCheck);
-    app.add_option("--mss", ips_.RawFileMSS, "MSS raw image file path")->check(existanceCheck);
-    app.add_flag  ("--rrc,!--no-rrc", ips_.doRRC, "whether or not do Relative Radiometric Correction, default is to do it");
+    app.add_option("--pan", ips_.RawFilePAN, "PAN raw image file path")->required()->check(CLI::ExistingFile);
+    auto rrc4pan =
+    app.add_flag  ("--do-rrc4pan", ips_.doRRC4PAN,
+                   "Whether or not do Relative Radiometric Correction for PAN, "
+                   "not(default) if this flag not provided");
+    app.add_option("--rrc-pan", ips_.RRCParaPAN,
+                   "Relative Radiometric Correction parameter file path for PAN image")->needs(rrc4pan);
     app.add_flag  ("--write-rrcpan,!--no-rrcpan",
                    ips_.outputRrcPanTiff,
-                   "whether or not write RRC-ed PAN data as tiff image file, default is not");
-    app.add_option("--rrc-pan", ips_.RRCParaPAN, "Relative Radiometric Correction parameter file path for PAN image");
+                   "Whether or not write RRC PAN data as tiff image file")
+        ->default_val(false)->needs(rrc4pan);
+    
+    app.add_option("--mss", ips_.RawFileMSS, "MSS raw image file path")->required()->check(CLI::ExistingFile);
+    app.add_flag  ("!--no-rrc4mss", ips_.doRRC4MSS,
+                   "Whether or not do Relative Radiometric Correction for PAN");
     app.add_option("--rrc-msb1",
                    ips_.RRCParaMSS[0],
                    "Relative Radiometric Correction parameter file path for MSS band #1 (1-based band NO.)"
-                   )->check(existanceCheck);
+                   )->check(CLI::ExistingFile);
     app.add_option("--rrc-msb2",
                    ips_.RRCParaMSS[1],
                    "Relative Radiometric Correction parameter file path for MSS band #2 (1-based band NO.)"
-                   )->check(existanceCheck);
+                   )->check(CLI::ExistingFile);
     app.add_option("--rrc-msb3",
                    ips_.RRCParaMSS[2],
                    "Relative Radiometric Correction parameter file path for MSS band #3 (1-based band NO.)"
-                   )->check(existanceCheck);
+                   )->check(CLI::ExistingFile);
     app.add_option("--rrc-msb4",
                    ips_.RRCParaMSS[3],
                    "Relative Radiometric Correction parameter file path for MSS band #4 (1-based band NO.)"
-                   )->check(existanceCheck);
+                   )->check(CLI::ExistingFile);
+    
     app.add_option("--slices",
                    ips_.IBCOR_Slices,
-                   xs("split slice count for inter-band correlation calculating, default is %d", IBCV_DEF_SLICES));
+                   "Split slice count for inter-band correlation calculating")->default_val(IBCV_DEF_SLICES);
     app.add_option("--ibc-sections",
                    ips_.IBCOR_Sections,
-                   xs("split virtically section count for inter-band correlation calculating, default is %d",
-                      IBCV_DEF_SECTIONS))->default_val(IBCV_DEF_SECTIONS);
+                   "Split virtically section count for inter-band correlation calculating")->default_val(IBCV_DEF_SECTIONS);
     app.add_option("--line-offset",
                    ips_.IBPA_LineOffset,
-                   "line offset for inter-band pixel alignment processing, default is 0");
+                   "Line offset for inter-band pixel alignment processing")->default_val(IBPA_DEFAULT_LINEOFFSET);
     app.add_option("--lines-section",
                    ips_.IBPA_BatchLines,
-                   xs("line-per-section for inter-band pixel alignment processing, default is %d", IBPA_DEFAULT_BATCHLINES));
+                   "Line-per-section for inter-band pixel alignment processing")->default_val(IBPA_DEFAULT_BATCHLINES);
     app.add_option("--overlap-lines",
                    ips_.IBPA_OverlapLines,
-                   xs("overlapped lines for each sibling portion during inter-band pixel alignment processing, "
-                      "default is %d", IBPA_DEFAULT_LINEOVERLAP));
+                   "Overlapped lines for each sibling portion during inter-band pixel alignment processing"
+                   "")->default_val(IBPA_DEFAULT_LINEOVERLAP);
     
     app.callback([&](){
         if (app.get_subcommands().size() == 0) {
@@ -214,15 +219,17 @@ void PreStitch() {
 
 void DefaultAction() {
     const InputParameters & ip = ips_;
-    if (ip.doRRC
-        &&(ip.RRCParaPAN   .length() == 0
-        || ip.RRCParaMSS[0].length() == 0
+    if (ip.doRRC4PAN && ip.RRCParaPAN.length() == 0) {
+        throw std::invalid_argument("RRC parameter file of PAN needed");
+    }
+    if (ip.doRRC4MSS
+        &&(ip.RRCParaMSS[0].length() == 0
         || ip.RRCParaMSS[1].length() == 0
         || ip.RRCParaMSS[2].length() == 0
         || ip.RRCParaMSS[3].length() == 0)) {
-        throw std::invalid_argument("RRC parameter file needed");
+        throw std::invalid_argument("RRC parameter file of all MSS Bands needed");
     }
-    GDALAllRegister();
+    
     PreProcessor pp(  ip.RawFilePAN
                     , ip.RawFileMSS
                     , ip.RRCParaPAN
@@ -230,9 +237,12 @@ void DefaultAction() {
     pp.LoadPAN();
     pp.LoadMSS();
     
-    if (ip.doRRC) pp.DoRRC();
-    if (ip.outputRrcPanTiff) pp.WriteRRCedPAN_TIFF(ip.IBPA_LineOffset);
-    //pp.WriteRRCedMSS();
+    if (ip.doRRC4PAN) {
+        pp.DoRRC4PAN();
+        if (ip.outputRrcPanTiff) pp.WriteRRCedPAN_TIFF(ip.IBPA_LineOffset);
+    }
+    
+    if (ip.doRRC4MSS) pp.DoRRC4MSS();
     
     pp.CalcInterBandCorrelation(ip.IBCOR_Slices, ip.IBCOR_Sections);
     pp.DoInterBandAlignment(ip.IBPA_BatchLines, ip.IBPA_LineOffset, ip.IBPA_OverlapLines);
@@ -240,6 +250,7 @@ void DefaultAction() {
 
 int main(int argc, const char * argv[]) {
     try {
+        GDALAllRegister();
         return ParseInputParametersFromCommandLineArguments(argc, argv);
     } catch (std::exception & ex) {
         printf("FATAL ERROR: %s.\n", ex.what());

@@ -47,17 +47,16 @@ public:
         }
         
         CheckFilesAttributes();
-        LoadRRCParamFiles();
     }
     
     void LoadPAN() {
-        OLOG("Loading PAN image ...");
-        mImagePAN = (uint16_t *)IMO::LoadRawImage(mPanFile, mSizePAN);
+        OLOG("Loading PAN raw image ...");
+        mImagePAN = (uint16_t *)IMO::LoadRawImage(mPanFile, 0, 0, mSizePAN);
     }
     
     void LoadMSS() {
-        OLOG("Reading MSS raw file content from `%s' ...", mMssFile.c_str());
-        scoped_ptr<uint16_t> mssMixed = (uint16_t *)IMO::LoadRawImage(mMssFile, mSizeMSS);
+        OLOG("Loading MSS raw image ...");
+        scoped_ptr<uint16_t> mssMixed = (uint16_t *)IMO::LoadRawImage(mMssFile, 0, 0, mSizeMSS);
         
         // split MSS 4 bands
         OLOG("Splitting %d bands of MSS image ...", MSS_BANDS);
@@ -187,13 +186,11 @@ public:
     }
     
     // Relative radiation correction
-    void DoRRC() {
+    void DoRRC4PAN() {
         if (mImagePAN.isNull()) throw std::logic_error("PAN raw image data not loaded, call `LoadPAN()' first");
-        for (int b = 0; b < MSS_BANDS; ++b) {
-            if (mImageBandMSS[b].isNull()) throw std::logic_error("MSS raw image data not loaded, call `LoadMSS()' first");
-        }
-
-        // 1. PAN image RRC
+        
+        mRRCParamPAN = IMO::LoadRRCParamFile(mRrcPanFile.c_str(), PIXELS_PER_LINE);
+        
         OLOG("Begin inplace RRC for PAN data ... ");
         stop_watch::rst();
         IMO::InplaceRRC(mImagePAN.get(), PIXELS_PER_LINE, (int)mLinesPAN, mRRCParamPAN);
@@ -201,13 +198,23 @@ public:
         OLOG("RRC for PAN done in %s seconds (%s MBps).",
              comma_sep(es).sep(),
              comma_sep(mSizePAN/es/1024.0/1024.0).sep());
-
-        // 2. MSS image RRC
+    }
+    
+    void DoRRC4MSS() {
+        for (int b = 0; b < MSS_BANDS; ++b) {
+            if (mImageBandMSS[b].isNull()) throw std::logic_error("MSS raw image data not loaded, call `LoadMSS()' first");
+        }
+        
+        int rrcLinesMSS = PIXELS_PER_LINE / MSS_BANDS;
+        for (int i = 0; i < MSS_BANDS; ++i) {
+            mRRCParamMSS[i] = ImageOperations::LoadRRCParamFile(mRrcMssBndFile[i].c_str(), rrcLinesMSS);
+        }
+        
         for (int i = 0; i < MSS_BANDS; ++i) {
             OLOG("Begin inplace RRC for MSS band %d ... ", i);
             stop_watch::rst();
             IMO::InplaceRRC(mImageBandMSS[i].get(), PIXELS_PER_LINE / MSS_BANDS, (int)mLinesMSS, mRRCParamMSS[i]);
-            es = stop_watch::tik().ellapsed;
+            auto es = stop_watch::tik().ellapsed;
             OLOG("RRC done for MSS band %d in %s seconds (%s MBps).",
                  i,
                  comma_sep(es).sep(),
@@ -337,7 +344,7 @@ public:
         }
     }
     
-    // TODO: opencv::remap does not support image data larger than 32767*32767, need further handling
+    // opencv::remap does not support image data larger than 32767*32767
     // processing portion by portion of input image for now.
     void DoInterBandAlignment(int linePerSection, int lineOffset = 0,
                               int sectionOverlap = IBPA_DEFAULT_LINEOVERLAP,
@@ -445,9 +452,6 @@ protected:
         cv::merge(alignedBands, MSS_BANDS, rMat);
         OLOG("Merged.");
         
-        //OLOG("Outputing section TIFF image ...");
-        //WriteAlignedMSS_TIFF(rows, section);
-        //OLOG("Output done.");
         return rMat;
     }
     
@@ -531,16 +535,6 @@ protected:
             OLOG("\tdeltaY coeff: [2] %.15f, [1] %.15f, [0] %.9f",
                  coeffsY[2], coeffsY[1], coeffsY[0]);
         }
-    }
-    
-    void LoadRRCParamFiles() {
-        int rrcLinesPAN = PIXELS_PER_LINE;
-        int rrcLinesMSS = rrcLinesPAN / MSS_BANDS;
-        mRRCParamPAN   = ImageOperations::LoadRRCParamFile(mRrcPanFile.c_str(), rrcLinesPAN);
-        for (int i = 0; i < MSS_BANDS; ++i) {
-            mRRCParamMSS[i] = ImageOperations::LoadRRCParamFile(mRrcMssBndFile[i].c_str(), rrcLinesMSS);
-        }
-        OLOG("LoadRRCParamFiles(): OK.\n");
     }
     
     void CheckFilesAttributes() {
