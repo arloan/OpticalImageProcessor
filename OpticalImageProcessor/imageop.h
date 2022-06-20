@@ -9,6 +9,7 @@
 #define ImageOperations_h
 
 #include <sys/stat.h>
+#include <gdal_priv.h>
 
 #include "oipshared.h"
 #include "toolbox.h"
@@ -17,6 +18,10 @@ BEGIN_NS(OIP)
 
 const int REMAP_ROW_GUARD = 32767;
 const int REMAP_SECTION_ROWS = 30000;
+
+struct GdalDsDtor {
+    inline void operator()(GDALDataset * ds) { if (ds) GDALClose(ds); }
+};
 
 struct RRCParam {
     double k;
@@ -267,6 +272,94 @@ public:
         
         return row_offset;
     }
+
+    static std::string StitchBigRaw(const std::string & leftImagePath,
+                                    const std::string & rightImagePath,
+                                    const std::string & stitchedFilePath,
+                                    int pixelPerLine,
+                                    int foldColPixels) {
+        
+        size_t szl = IMO::FileSize( leftImagePath);
+        size_t szr = IMO::FileSize(rightImagePath);
+        if (szl != szr) {
+            throw std::invalid_argument(xs("RAW image sizes not match: left = %s bytes, right = %s bytes",
+                                           comma_sep(szl).sep(),
+                                           comma_sep(szr).sep()).s);
+        }
+        
+        int bytesPerLine = pixelPerLine * BYTES_PER_PIXEL;
+        int imageLines = (int)(szl / bytesPerLine);
+        int foldBytes = foldColPixels * BYTES_PER_PIXEL;
+        int outputHalfLineBytes = bytesPerLine - foldBytes;
+        int outputFullLinePixels = (pixelPerLine - foldColPixels) * 2;
+        
+        bool outputIsTiff = true;
+        std::string outputFilePath = stitchedFilePath;
+        if (stitchedFilePath == "") {
+            // default to output TIFF
+            outputFilePath = (std::filesystem::current_path() /
+                              xs("stitched_%dn%db" TIFF_FILE_EXT, outputFullLinePixels, BYTES_PER_PIXEL * 8).s).string();
+        } else {
+            auto outExt = std::filesystem::path(stitchedFilePath).extension().string();
+            outputIsTiff = CLI::detail::to_lower(outExt) == CLI::detail::to_lower(TIFF_FILE_EXT);
+        }
+        
+        scoped_ptr<FILE, FileDtor> fl = fopen( leftImagePath.c_str(), "rb");
+        scoped_ptr<FILE, FileDtor> fr = fopen(rightImagePath.c_str(), "rb");
+        scoped_ptr<char> lineBuff = new char[bytesPerLine];
+        
+        std::function<void(void*,int,int,int)> writer;
+        scoped_ptr<FILE, FileDtor> fo;
+        scoped_ptr<GDALDataset, GdalDsDtor> ds;
+        GDALRasterBand * bnd = NULL;
+        if (outputIsTiff) {
+            GDALDriver * drv = GetGDALDriverManager()->GetDriverByName("GTiff");
+            ds = drv->Create(outputFilePath.c_str(), outputFullLinePixels, imageLines, 1, GDT_UInt16, NULL);
+            bnd = ds->GetRasterBand(1);
+            writer = [&](void * buff, int bytes, int row, int col) {
+                if (bnd->RasterIO(GF_Write,
+                                  col, row, outputFullLinePixels, 1,
+                                  buff,
+                                  outputFullLinePixels, 1,
+                                  GDT_UInt16, 0, 0) == CE_Failure) {
+                    throw errno_error(xs("write stitched image file failed at line %d", row).s);
+                }
+            };
+        } else {
+            fo = fopen(outputFilePath.c_str(), "wb");
+            writer = [&](void * buff, int bytes, int row, int col) {
+                if (fwrite(buff, bytes, 1, fo) == 0) {
+                    throw errno_error(xs("write stitched image file failed at line %d", row).s);
+                }
+            };
+        }
+        
+        OLOG("Begin stitching two images ...");
+        stop_watch::rst();
+        for (int i = 0; i < imageLines; ++i) {
+            if (fread(lineBuff, bytesPerLine, 1, fl) == 0) {
+                throw errno_error(xs("read left image file failed at line %d", i).s);
+            }
+            writer(lineBuff, outputHalfLineBytes, i, 0);
+            
+            if (fread(lineBuff, bytesPerLine, 1, fr) == 0) {
+                throw errno_error(xs("read right image file failed at line %d", i).s);
+            }
+            // memset(lineBuff, 0, bytesPerLine);
+            writer(lineBuff + foldBytes, outputHalfLineBytes, i, outputFullLinePixels);
+            
+            if ((i + 1) % 10000 == 0) {
+                OLOG("%s lines of image data stitched.", comma_sep(i+1).sep());
+            }
+        }
+        auto es = stop_watch::tik().ellapsed;
+        OLOG("%s bytes written in %s seconds (%s MBps).",
+             comma_sep(szl).sep(),
+             comma_sep(es).sep(),
+             comma_sep(szl/es/(1024.0*1024.0)).sep());
+        
+        return stitchedFilePath;
+ }
 };
 
 END_NS

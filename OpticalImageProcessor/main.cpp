@@ -123,18 +123,23 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
     std::string outputFile;
     int foldCols = 0;
     CLI::App & sta = * app.add_subcommand("stitch",
-                                          "Stitch two SPAN or MSS images.");
+                                          "Stitch two PAN or MSS images.");
     sta.add_option("--image1", image1, "Left image file path")->required();
     sta.add_option("--image2", image2, "Right image file path")->required();
     sta.add_option("-o,--out", outputFile, "Path of the output stitched image file");
     sta.add_option("-c,--fold-cols", foldCols,
-                   "Folding cols (in pixel) when stitching two images");
+                   "Folding cols (in pixel) when stitching two images"
+                   )->required()->check([](const std::string & v) {
+        int col = atoi(v.c_str());
+        if (col < 2) return "fold column value too small";
+        return "";
+    });
     sta.callback([&]() {
-        Stitcher::Stitch(image1, image2, outputFile, foldCols);
+        Stitcher::Stitch(image1, image2, outputFile, foldCols / 2);
     });
     
     // default command arguments
-    app.add_option("--pan", ips_.RawFilePAN, "PAN raw image file path")->required()->check(CLI::ExistingFile);
+    app.add_option("--pan", ips_.RawFilePAN, "PAN raw image file path")->check(CLI::ExistingFile);
     auto rrc4pan =
     app.add_flag  ("--do-rrc4pan", ips_.doRRC4PAN,
                    "Whether or not do Relative Radiometric Correction for PAN, "
@@ -146,7 +151,7 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
                    "Whether or not write RRC PAN data as tiff image file")
         ->default_val(false)->needs(rrc4pan);
     
-    app.add_option("--mss", ips_.RawFileMSS, "MSS raw image file path")->required()->check(CLI::ExistingFile);
+    app.add_option("--mss", ips_.RawFileMSS, "MSS raw image file path")->check(CLI::ExistingFile);
     app.add_flag  ("!--no-rrc4mss", ips_.doRRC4MSS,
                    "Whether or not do Relative Radiometric Correction for PAN");
     app.add_option("--rrc-msb1",

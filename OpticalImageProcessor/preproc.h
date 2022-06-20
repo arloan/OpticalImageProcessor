@@ -15,7 +15,6 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <NumCpp/Polynomial/Poly1d.hpp>
-#include <gdal_priv.h>
 
 #include "oipshared.h"
 #include "imageop.h"
