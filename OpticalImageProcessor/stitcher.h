@@ -37,7 +37,7 @@ public:
         if (leftExt == CLI::detail::to_lower(RAW_FILE_EXT)) {
             return IMO::StitchBigRaw(leftImagePath, rightImagePath, outputPath, PIXELS_PER_LINE, foldCols);
         } else {
-            throw std::runtime_error("TIFF images not handled yet.");
+            return IMO::StitchTiff(leftImagePath, rightImagePath, outputPath, foldCols);
         }
         
         return outputPath;

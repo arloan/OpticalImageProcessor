@@ -359,7 +359,139 @@ public:
              comma_sep(szl/es/(1024.0*1024.0)).sep());
         
         return stitchedFilePath;
- }
+    }
+    
+    static std::string StitchTiff(const std::string & leftImagePath,
+                                  const std::string & rightImagePath,
+                                  const std::string & stitchedFilePath,
+                                  int foldColPixels) {
+        
+        std::string outputFilePath = stitchedFilePath;
+        if (stitchedFilePath == "") {
+            outputFilePath = (std::filesystem::current_path() / "stitched" TIFF_FILE_EXT).string();
+        } else {
+            auto outExt = std::filesystem::path(stitchedFilePath).extension().string();
+            if (CLI::detail::to_lower(outExt) != CLI::detail::to_lower(TIFF_FILE_EXT)) {
+                throw std::invalid_argument("Output file should be a tiff image");
+            }
+        }
+        
+        size_t szl = IMO::FileSize( leftImagePath);
+        size_t szr = IMO::FileSize(rightImagePath);
+        //const size_t MAX4G = 4000000000;
+        //if (szl > MAX4G || szr > MAX4G) {
+        //    throw std::argument_error("image size too large");
+        //}
+        OLOG("Reading tiff image from file `%s' ...", leftImagePath.c_str());
+        stop_watch::rst();
+        cv::Mat imageL = cv::imread( leftImagePath, cv::IMREAD_LOAD_GDAL);
+        auto es = stop_watch::tik().ellapsed;
+        OLOG("Image size: %d cols, %d rows, type: %d, channels: %d.",
+             imageL.cols, imageL.rows,
+             imageL.type(), imageL.channels());
+        OLOG("%s bytes read in %s seconds (%s MBps).",
+             comma_sep(szl).sep(),
+             comma_sep(es).sep(),
+             comma_sep(szl/es/1024.0/1024.0).sep());
+        
+        OLOG("Reading tiff image from file `%s' ...", rightImagePath.c_str());
+        stop_watch::rst();
+        cv::Mat imageR = cv::imread(rightImagePath, cv::IMREAD_LOAD_GDAL);
+        es = stop_watch::tik().ellapsed;
+        OLOG("Image size: %d cols, %d rows, type: %d, channels: %d.",
+             imageR.cols, imageR.rows,
+             imageR.type(), imageR.channels());
+        OLOG("%s bytes read in %s seconds (%s MBps).",
+             comma_sep(szr).sep(),
+             comma_sep(es).sep(),
+             comma_sep(szr/es/1024.0/1024.0).sep());
+
+        if (imageL.rows != imageR.rows || imageL.cols != imageR.cols) {
+            throw std::runtime_error("images have different sizes");
+        }
+        
+        int outputHalfLinePixels = imageL.cols - foldColPixels;
+        int outputFullLinePixels = outputHalfLinePixels * 2;
+        if (szl < 4000000000) { // around 4GB
+            cv::Mat stitchedImage(imageL.rows, outputFullLinePixels, CV_16UC4);
+            cv::Mat stitchLeft = imageL.colRange(0, outputHalfLinePixels);
+            cv::Mat stitchRiht = imageR.colRange(foldColPixels, imageR.cols);
+            
+            size_t copyBytes = (size_t)imageL.rows * outputHalfLinePixels * BYTES_PER_PIXEL * imageL.channels();
+            OLOG("Copying left part image data ...");
+            stop_watch::rst();
+            stitchLeft.copyTo(stitchedImage.colRange(0, outputHalfLinePixels));
+            es = stop_watch::tik().ellapsed;
+            OLOG("%s bytes copied in %s seconds (%s MBps).",
+                 comma_sep(copyBytes).sep(),
+                 comma_sep(es).sep(),
+                 comma_sep(copyBytes/es/1024.0/1024.0).sep());
+
+            OLOG("Copying right part image data ...");
+            stop_watch::rst();
+            stitchRiht.copyTo(stitchedImage.colRange(outputHalfLinePixels, stitchedImage.cols));
+            es = stop_watch::tik().ellapsed;
+            OLOG("%s bytes copied in %s seconds (%s MBps).",
+                 comma_sep(copyBytes).sep(),
+                 comma_sep(es).sep(),
+                 comma_sep(copyBytes/es/1024.0/1024.0).sep());
+            
+            OLOG("Write stitched image to file '%s' ...", outputFilePath.c_str());
+            stop_watch::rst();
+            if (!cv::imwrite(outputFilePath, stitchedImage)) {
+                throw std::runtime_error("Writing stitched image as TIFF failed");
+            }
+            es = stop_watch::tik().ellapsed;
+            OLOG("%s bytes written in %s seconds (%s MBps).",
+                 comma_sep(copyBytes*2).sep(),
+                 comma_sep(es).sep(),
+                 comma_sep(copyBytes*2/es/1024.0/1024.0).sep());
+        } else {
+            StitchTiffGDAL(imageL, imageR, outputFilePath, foldColPixels);
+        }
+        
+        return outputFilePath;
+    }
+    
+private:
+    static void StitchTiffGDAL(const cv::Mat & imageL,
+                               const cv::Mat & imageR,
+                               const std::string & outputImagePath,
+                               int foldColPixels) {
+        // BUGBUG: not working
+        int channels = imageL.channels();
+        int imageLines = imageL.rows;
+        int outputHalfLinePixels = imageL.cols - foldColPixels;
+        int outputFullLinePixels = outputHalfLinePixels * 2;
+        GDALDriver * drv = GetGDALDriverManager()->GetDriverByName("GTiff");
+        scoped_ptr<GDALDataset, GdalDsDtor> ds = drv->Create(outputImagePath.c_str(),
+                                                             outputFullLinePixels,
+                                                             imageLines,
+                                                             channels, GDT_UInt16, NULL);
+        for (int b = 0; b < channels; ++b) {
+            GDALRasterBand * bnd = ds->GetRasterBand(1+b);
+            for (int i = 0; i < imageLines; ++i) {
+                if (bnd->RasterIO(GF_Write,
+                                  0, i, outputHalfLinePixels, 1,
+                                  (void *)imageL.ptr(i),
+                                  outputHalfLinePixels, 1,
+                                  GDT_UInt16, 0, 0) == CE_Failure) {
+                    throw errno_error(xs("write stitched image file failed at left part line %d", i).s);
+                }
+                if (bnd->RasterIO(GF_Write,
+                                  outputHalfLinePixels, i, outputHalfLinePixels, 1,
+                                  (void *)(imageR.ptr(i) + foldColPixels),
+                                  outputHalfLinePixels, 1,
+                                  GDT_UInt16, 0, 0) == CE_Failure) {
+                    throw errno_error(xs("write stitched image file failed at right part line %d", i).s);
+                }
+                
+                if ((i + 1) % 5000 == 0) {
+                    OLOG("%s lines of image data stitched.", comma_sep(i+1).sep());
+                }
+            }
+        }
+    }
 };
 
 END_NS
