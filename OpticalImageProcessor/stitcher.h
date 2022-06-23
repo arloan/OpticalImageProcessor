@@ -21,7 +21,9 @@ public:
     static std::string Stitch(const std::string & leftImagePath,
                               const std::string & rightImagePath,
                               const std::string & outputPath = "",
-                              int foldCols = 0) {
+                              int foldCols = 0,
+                              bool useGDAL = false,
+                              int * bandMap = NULL) {
         std::filesystem::path leftPath  = leftImagePath;
         std::filesystem::path rightPath = rightImagePath;
         std::string leftExt = CLI::detail::to_lower( leftPath.extension());
@@ -37,7 +39,7 @@ public:
         if (leftExt == CLI::detail::to_lower(RAW_FILE_EXT)) {
             return IMO::StitchBigRaw(leftImagePath, rightImagePath, outputPath, PIXELS_PER_LINE, foldCols);
         } else {
-            return IMO::StitchTiff(leftImagePath, rightImagePath, outputPath, foldCols);
+            return IMO::StitchTiff(leftImagePath, rightImagePath, outputPath, foldCols, useGDAL, bandMap);
         }
         
         return outputPath;

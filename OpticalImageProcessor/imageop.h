@@ -364,7 +364,9 @@ public:
     static std::string StitchTiff(const std::string & leftImagePath,
                                   const std::string & rightImagePath,
                                   const std::string & stitchedFilePath,
-                                  int foldColPixels) {
+                                  int foldColPixels,
+                                  bool useGDAL = false,
+                                  int * bandMap = NULL) {
         
         std::string outputFilePath = stitchedFilePath;
         if (stitchedFilePath == "") {
@@ -412,7 +414,7 @@ public:
         
         int outputHalfLinePixels = imageL.cols - foldColPixels;
         int outputFullLinePixels = outputHalfLinePixels * 2;
-        if (szl < 4000000000) { // around 4GB
+        if (szl < 4000000000 && !useGDAL) { // around 4GB
             cv::Mat stitchedImage(imageL.rows, outputFullLinePixels, CV_16UC4);
             cv::Mat stitchLeft = imageL.colRange(0, outputHalfLinePixels);
             cv::Mat stitchRiht = imageR.colRange(foldColPixels, imageR.cols);
@@ -447,50 +449,120 @@ public:
                  comma_sep(es).sep(),
                  comma_sep(copyBytes*2/es/1024.0/1024.0).sep());
         } else {
-            StitchTiffGDAL(imageL, imageR, outputFilePath, foldColPixels);
+            StitchTiffGDAL(imageL, imageR, outputFilePath, foldColPixels, bandMap);
         }
         
         return outputFilePath;
     }
     
 private:
-    static void StitchTiffGDAL(const cv::Mat & imageL,
-                               const cv::Mat & imageR,
+    static void StitchTiffGDAL(cv::Mat & imageL,
+                               cv::Mat & imageR,
                                const std::string & outputImagePath,
-                               int foldColPixels) {
-        // BUGBUG: not working
-        int channels = imageL.channels();
+                               int foldColPixels,
+                               int * bandMap = NULL,
+                               bool setBandInterpretion = false) {
         int imageLines = imageL.rows;
         int outputHalfLinePixels = imageL.cols - foldColPixels;
         int outputFullLinePixels = outputHalfLinePixels * 2;
+        
+        char ** options = CSLParseCommandLine("");
+        options = CSLSetNameValue(options, "COMPRESS", "LZW");
+        options = CSLSetNameValue(options, "PREDICTOR", "2");
+        options = CSLSetNameValue(options, "NUM_THREADS", "ALL_CPUS");
+        options = CSLSetNameValue(options, "PHOTOMETRIC", "RGB");
         GDALDriver * drv = GetGDALDriverManager()->GetDriverByName("GTiff");
         scoped_ptr<GDALDataset, GdalDsDtor> ds = drv->Create(outputImagePath.c_str(),
                                                              outputFullLinePixels,
                                                              imageLines,
-                                                             channels, GDT_UInt16, NULL);
-        for (int b = 0; b < channels; ++b) {
-            GDALRasterBand * bnd = ds->GetRasterBand(1+b);
-            for (int i = 0; i < imageLines; ++i) {
-                if (bnd->RasterIO(GF_Write,
-                                  0, i, outputHalfLinePixels, 1,
-                                  (void *)imageL.ptr(i),
-                                  outputHalfLinePixels, 1,
-                                  GDT_UInt16, 0, 0) == CE_Failure) {
-                    throw errno_error(xs("write stitched image file failed at left part line %d", i).s);
-                }
-                if (bnd->RasterIO(GF_Write,
-                                  outputHalfLinePixels, i, outputHalfLinePixels, 1,
-                                  (void *)(imageR.ptr(i) + foldColPixels),
-                                  outputHalfLinePixels, 1,
-                                  GDT_UInt16, 0, 0) == CE_Failure) {
-                    throw errno_error(xs("write stitched image file failed at right part line %d", i).s);
-                }
-                
-                if ((i + 1) % 5000 == 0) {
-                    OLOG("%s lines of image data stitched.", comma_sep(i+1).sep());
+                                                             MSS_BANDS, GDT_UInt16, options);
+        CSLDestroy(options);
+        
+        int sections = (imageLines - 1) / IBPA_DEFAULT_BATCHLINES + 1;
+        int processedLines = 0;
+        cv::Mat imageFullSection(IBPA_DEFAULT_BATCHLINES, outputFullLinePixels, CV_16UC4);
+        cv::Mat splitBands[MSS_BANDS];
+        cv::Mat splitConts[MSS_BANDS];
+
+        stop_watch::rst();
+        for (int s = 0; s < sections; ++s) {
+            int sectionLines = std::min(imageLines - processedLines, IBPA_DEFAULT_BATCHLINES);
+            
+            cv::Range rowRng(processedLines, processedLines + sectionLines);
+            cv::Range colRngL(0, outputHalfLinePixels);
+            cv::Range colRngR(foldColPixels, imageR.cols);
+            
+            cv::Range rowRngT(0, sectionLines);
+            cv::Range colRngTL = colRngL;
+            cv::Range colRngTR(outputHalfLinePixels, outputFullLinePixels);
+            
+            OLOG("Merging 2 CMOS image data part %d/%d ...", s+1, sections);
+            auto sectionL = imageL(rowRng, colRngL);
+            auto sectionR = imageR(rowRng, colRngR);
+            auto destL = imageFullSection(rowRngT, colRngTL);
+            auto destR = imageFullSection(rowRngT, colRngTR);
+            sectionL.copyTo(destL);
+            sectionR.copyTo(destR);
+            
+            GDALColorInterp bandIntp[MSS_BANDS] = {
+                GCI_RedBand,
+                GCI_GreenBand,
+                GCI_BlueBand,
+                GCI_AlphaBand,
+            };
+            
+            OLOG("Writing to TIFF image file ...");
+            
+            cv::split(imageFullSection, splitBands);
+            for (int b = 0; b < MSS_BANDS; ++b) {
+                if (splitBands[b].isContinuous()) {
+                    splitConts[b] = splitBands[b];
+                } else {
+                    splitConts[b] = splitBands[b].clone();
+                    OLOG("Cloned band #%d of section #%d.", b+1, s);
                 }
             }
+            for (int b = 0; b < MSS_BANDS; ++b) {
+                GDALRasterBand * bnd = ds->GetRasterBand(1+b);
+                if (setBandInterpretion) bnd->SetColorInterpretation(bandIntp[b]);
+                int mappedBand = bandMap ? bandMap[b] - 1 : b;
+                if (bnd->RasterIO(GF_Write,
+                                  0, processedLines, outputFullLinePixels, sectionLines,
+                                  (void *)splitConts[mappedBand].data,
+                                  outputFullLinePixels, sectionLines,
+                                  GDT_UInt16, 0, 0) == CE_Failure) {
+                    throw errno_error(xs("write stitched image file failed at line %d of band #%d",
+                                         processedLines, b).s);
+                }
+            }
+
+            /*//
+            for (int b = 0; b < MSS_BANDS; ++b) {
+                GDALRasterBand * bnd = ds->GetRasterBand(1+b);
+                if (setBandInterpretion) bnd->SetColorInterpretation(bandIntp[b]);
+                if (bnd->RasterIO(GF_Write,
+                                  0, processedLines, outputFullLinePixels, sectionLines,
+                                  (void *)((char *)imageFullSection.data + b * BYTES_PER_PIXEL),
+                                  outputFullLinePixels, sectionLines,
+                                  GDT_UInt16,
+                                  BYTES_PER_PIXEL * MSS_BANDS,
+                                  outputFullLinePixels * BYTES_PER_PIXEL * MSS_BANDS) == CE_Failure) {
+                    throw errno_error(xs("write stitched image file failed at line %d of band #%d",
+                                         processedLines, b).s);
+                }
+            }//*/
+            
+            processedLines += sectionLines;
+            OLOG("%s lines of image data stitched.", comma_sep(processedLines).sep());
         }
+        
+        size_t totalBytes = (size_t)imageLines * outputFullLinePixels * MSS_BANDS * BYTES_PER_PIXEL;
+        auto es = stop_watch::tik().ellapsed;
+        OLOG("Merged TIFF image file '%s' generated.", outputImagePath.c_str());
+        OLOG("%s bytes processed in %s seconds (%s MBps).",
+             comma_sep(totalBytes).sep(),
+             comma_sep(es).sep(),
+             comma_sep(totalBytes/es/1024.0/1024.0).sep());
     }
 };
 

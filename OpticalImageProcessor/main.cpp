@@ -121,7 +121,9 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
     std::string image1;
     std::string image2;
     std::string outputFile;
+    std::string bandMap;
     int foldCols = 0;
+    bool useGDAL = false;
     CLI::App & sta = * app.add_subcommand("stitch",
                                           "Stitch two PAN or MSS images.");
     sta.add_option("--image1", image1, "Left image file path")->required();
@@ -134,8 +136,23 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
         if (col < 2) return "fold column value too small";
         return "";
     });
+    auto gdal =
+    sta.add_flag  ("-g,--GDAL", useGDAL,
+                   "Use GDAL to output stitched image file (TIFF only). "
+                   "GDAL is always used for Big TIFF output even -g not supplied.")->default_val(false);
+    sta.add_option("-m,--band-map", bandMap, "Map output band order (1-based), i.e '3,2,1,4'"
+                   )->needs(gdal);
     sta.callback([&]() {
-        Stitcher::Stitch(image1, image2, outputFile, foldCols / 2);
+        int map[MSS_BANDS] = { 0 };
+        if (sscanf(bandMap.c_str(), "%d,%d,%d,%d", map, map+1, map+2, map+3) != 4) {
+            throw CLI::ValidationError("-m", "need 4 band indices");
+        }
+        for (int i = 0; i < MSS_BANDS; ++i) {
+            if (map[i] <= 0 || map[i] > MSS_BANDS) {
+                throw CLI::ValidationError("-m", "invalid band index");
+            }
+        }
+        Stitcher::Stitch(image1, image2, outputFile, foldCols / 2, useGDAL, map);
     });
     
     // default command arguments
