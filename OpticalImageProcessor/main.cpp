@@ -110,8 +110,8 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
     
     psa.add_flag  ("-r,--rrc,!--no-rrc",stp_.doRRC,
                    "Whether do Relative Radiometric Correction or not for PAN after pre-stitch parameter calclationg");
-    psa.add_flag  ("-c,--only-calulate", stp_.onlyParamCalc,
-                   "Only do pre-stitch parameter calulation, do not output pixel-adjusted PAN file.");
+    psa.add_flag  ("-c,--only-calculate", stp_.onlyParamCalc,
+                   "Only do pre-stitch parameter calculation, do not output pixel-adjusted PAN file.");
     
     psa.callback([](){
         PreStitch();

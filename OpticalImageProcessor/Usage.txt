@@ -1,0 +1,81 @@
+step 1.
+    1.1 Calculate inter-CMOS pixel correlation parameter (for CMOS stitching use) from PAN raw images
+    1.2 Do Relative Radiometric Correction for each PAN raw images, and generate corresponding RRC-ed PAN image files
+    1.3 Do pixel correction for CMOS-2 PAN image according to the correlation result calculated in step 1.1
+
+command:
+./OpticalProcessor prestitch \
+    --pan1=/path/to/CMOS-1/PAN_RAW_IMAGE/such-as/KEL_MN200_PAN-1_20220316_317120309_00000001_00_12_B1.RAW \
+    --pan2=/path/to/CMOS-1/PAN_RAW_IMAGE/such-as/KEL_MN200_PAN-2_20220316_317120309_00000001_00_12_B1.RAW \
+    --rrc1=/path/to/相对辐射定标系数CSV/PAN-1.csv \
+    --rrc2=/path/to/相对辐射定标系数CSV/PAN-2.csv
+
+above command will generate 3 files:
+    1. KEL_MN200_PAN-1_20220316_317120309_00000001_00_12_B1.RRC.RAW
+       => Relative Radiometric Correction processed CMOS-1 PAN raw image file.
+    2. KEL_MN200_PAN-2_20220316_317120309_00000001_00_12_B1.RRC.RAW
+       => Relative Radiometric Correction processed CMOS-2 PAN raw image file.
+    1. KEL_MN200_PAN-2_20220316_317120309_00000001_00_12_B1.RRC.PRESTT.RAW
+       => Relative Radiometric Correction processed & pixel corrected CMOS-2 PAN raw image file.
+
+
+
+step 2. Stitch CMOS-1 & CMOS-2 PAN raw images
+command:
+./OpticalImageProcessor stitch \
+    --image1=KEL_MN200_PAN-1_20220316_317120309_00000001_00_12_B1.RRC.RAW \
+    --image2=KEL_MN200_PAN-2_20220316_317120309_00000001_00_12_B1.RRC.PRESTT.RAW \
+    --fold-cols=200 \
+    -o stitched-PAN.TIFF
+
+above command will generate `stitched-PAN.TIFF` file, which is a BigTIFF stitched by the 2 PAN images.
+you can also specify `-o stitched-PAN.RAW` to generated a stitched RAW image file.
+
+
+
+step 3.
+    3.1 generate inter-band pixel aligned MSS tiff image for CMOS-1
+
+command:
+./OpticalImageProcessor \
+    --pan=KEL_MN200_PAN-1_20220316_317120309_00000001_00_12_B1.RRC.RAW \
+    --mss=KEL_MN200_MSS-1_20220316_317120309_00000001_00_12_B1.RAW \
+    --rrc-msb1=/path/to/相对辐射定标系数CSV/MSS-1.B1.csv \
+    --rrc-msb2=/path/to/相对辐射定标系数CSV/MSS-1.B2.csv \
+    --rrc-msb3=/path/to/相对辐射定标系数CSV/MSS-1.B3.csv \
+    --rrc-msb4=/path/to/相对辐射定标系数CSV/MSS-1.B4.csv
+
+!!!WARNING!!!
+YOU SHOULD USE THE THE `RRC.RAW` FILE, NOT THE `.RAW` FILE!!!
+
+above command will generate multi-band tiff image file for CMOS-1:
+    KEL_MN200_MSS-1_20220316_317120309_00000001_00_12_B1.ALIGNED.TIFF
+
+    3.2 generate inter-band pixel aligned MSS tiff image for CMOS-2
+
+command:
+./OpticalImageProcessor \
+    --pan=KEL_MN200_PAN-2_20220316_317120309_00000001_00_12_B1.RRC.PRESTT.RAW \
+    --mss=KEL_MN200_MSS-2_20220316_317120309_00000001_00_12_B1.RAW \
+    --rrc-msb1=/path/to/相对辐射定标系数CSV/MSS-2.B1.csv \
+    --rrc-msb2=/path/to/相对辐射定标系数CSV/MSS-2.B2.csv \
+    --rrc-msb3=/path/to/相对辐射定标系数CSV/MSS-2.B3.csv \
+    --rrc-msb4=/path/to/相对辐射定标系数CSV/MSS-2.B4.csv
+
+!!!WARNING!!!
+YOU SHOULD USE THE `RRC.PRESTT.RAW` FILE, NOT THE `RRC.RAW` OR `.RAW` FILE!!!
+
+above command will generate multi-band tiff image file for CMOS-2:
+    KEL_MN200_MSS-2_20220316_317120309_00000001_00_12_B1.ALIGNED.TIFF
+
+
+
+step 4. Stitch CMOS-1 & CMOS-2 MSS tiff images
+command:
+./OpticalImageProcessor stitch \
+    --image1=KEL_MN200_MSS-1_20220316_317120309_00000001_00_12_B1.ALIGNED.TIFF \
+    --image2=KEL_MN200_MSS-2_20220316_317120309_00000001_00_12_B1.ALIGNED.TIFF \
+    --fold-cols=50 \
+    -o stitched-MSS.TIFF
+
+above command will generate the stitched tiff image file `stitched-MSS.TIFF`.

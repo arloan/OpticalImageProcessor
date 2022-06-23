@@ -31,6 +31,7 @@
 		8E94170D2845B83A00AB2256 /* sample-task.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "sample-task.sh"; sourceTree = "<group>"; };
 		8EA16553285C71680063CF8C /* stitcher.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = stitcher.h; sourceTree = "<group>"; };
 		8EA16554285C7C990063CF8C /* imageop.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = imageop.h; sourceTree = "<group>"; };
+		8EAFCAA02863150F008A2D61 /* Usage.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = Usage.txt; sourceTree = "<group>"; };
 		8EC2EDBE2850A8520035A7B5 /* CMakeLists.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = CMakeLists.txt; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -72,6 +73,7 @@
 				8EC2EDBE2850A8520035A7B5 /* CMakeLists.txt */,
 				8EA16553285C71680063CF8C /* stitcher.h */,
 				8EA16554285C7C990063CF8C /* imageop.h */,
+				8EAFCAA02863150F008A2D61 /* Usage.txt */,
 			);
 			path = OpticalImageProcessor;
 			sourceTree = "<group>";
