@@ -4,12 +4,12 @@ Compilation Guide for Ubuntu Linux
 1. clone source code
 In your home or other work directory, run command under terminal:
 
-git clone 
+git clone https://github.com/arloan/OpticalImageProcessor.git
 
 
 2. install library `libimsux`:
 
-git clone
+git clone https://github.com/arloan/libimsux.git
 sudo mv libimsux /usr/local/include/
 
 3. install opencv & gdal (Python installation of the 2 library won't work)
