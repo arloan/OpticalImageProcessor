@@ -1,0 +1,50 @@
+Compilation Guide for Ubuntu Linux
+
+
+1. clone source code
+In your home or other work directory, run command under terminal:
+
+git clone 
+
+
+2. install library `libimsux`:
+
+git clone
+sudo mv libimsux /usr/local/include/
+
+3. install opencv & gdal (Python installation of the 2 library won't work)
+
+sudo apt-get update
+sudo apt-get install libgdal-dev libopencv-dev
+
+3. install library NumCpp & CLI11
+
+i. install & configure linuxbrew (homebrew for Linux)
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' >> /home/<YOUR-USER-NAME>/.profile
+eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+
+ii. install NumCpp & CLI11
+brew install numcpp cli11
+
+4. install cmake in case of you don't have it already
+sudo apt-get install cmake
+-- or --
+brew install cmake
+
+5. compile
+
+cd OpticalImageProcessor
+mkdir build
+cd build
+cmake ../OpticalImageProcessor
+cmake --build .
+
+In some cases, cmake complains it still cannot find <CLI/CLI.hpp> and/or <gdal_priv.h>,
+please modify OpticalImageProcessor/CMakeLists.txt, add the following two lines at proper position:
+
+target_include_directories(${PROJECT_NAME} PUBLIC /home/linuxbrew/.linuxbrew/include)
+target_include_directories(${PROJECT_NAME} PUBLIC ${GDAL_INCLUDE_DIRS})
+
+
+Good luck!
