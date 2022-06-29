@@ -318,9 +318,9 @@ public:
             bnd = ds->GetRasterBand(1);
             writer = [&](void * buff, int bytes, int row, int col) {
                 if (bnd->RasterIO(GF_Write,
-                                  col, row, outputFullLinePixels, 1,
+                                  col, row, outputFullLinePixels / 2, 1,
                                   buff,
-                                  outputFullLinePixels, 1,
+                                  outputFullLinePixels / 2, 1,
                                   GDT_UInt16, 0, 0) == CE_Failure) {
                     throw errno_error(xs("write stitched image file failed at line %d", row).s);
                 }
@@ -346,7 +346,7 @@ public:
                 throw errno_error(xs("read right image file failed at line %d", i).s);
             }
             // memset(lineBuff, 0, bytesPerLine);
-            writer(lineBuff + foldBytes, outputHalfLineBytes, i, outputFullLinePixels);
+            writer(lineBuff + foldBytes, outputHalfLineBytes, i, outputFullLinePixels / 2);
             
             if ((i + 1) % 10000 == 0) {
                 OLOG("%s lines of image data stitched.", comma_sep(i+1).sep());

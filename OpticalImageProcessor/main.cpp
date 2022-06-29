@@ -144,15 +144,17 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
                    )->needs(gdal);
     sta.callback([&]() {
         int map[MSS_BANDS] = { 0 };
-        if (sscanf(bandMap.c_str(), "%d,%d,%d,%d", map, map+1, map+2, map+3) != 4) {
-            throw CLI::ValidationError("-m", "need 4 band indices");
-        }
-        for (int i = 0; i < MSS_BANDS; ++i) {
-            if (map[i] <= 0 || map[i] > MSS_BANDS) {
-                throw CLI::ValidationError("-m", "invalid band index");
+        if (bandMap.length() > 0) {
+            if (sscanf(bandMap.c_str(), "%d,%d,%d,%d", map, map+1, map+2, map+3) != 4) {
+                throw CLI::ValidationError("-m", "need 4 band indices");
+            }
+            for (int i = 0; i < MSS_BANDS; ++i) {
+                if (map[i] <= 0 || map[i] > MSS_BANDS) {
+                    throw CLI::ValidationError("-m", "invalid band index");
+                }
             }
         }
-        Stitcher::Stitch(image1, image2, outputFile, foldCols / 2, useGDAL, map);
+        Stitcher::Stitch(image1, image2, outputFile, foldCols / 2, useGDAL, bandMap.length() > 0 ? map : NULL);
     });
     
     // default command arguments
