@@ -72,6 +72,10 @@ public:
         mLinesPAN = (int)(s1 / BYTES_PER_PANLINE);
         OLOG("PAN: %s lines total.", comma_sep(mLinesPAN).sep());
         
+        if (mLinesPAN < sections * linePerSection) {
+            throw std::invalid_argument("PAN line count less than sections times line-per-section, use smaller -s and/or -l value(s)");
+        }
+        
         mRrcFilePAN1 = mFilePAN1;
         mRrcFilePAN2 = mFilePAN2;
     }
