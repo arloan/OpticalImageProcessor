@@ -23,7 +23,8 @@ struct InputParameters {
     // Relative radiation correction parameter file
     std::string RRCParaPAN;
     std::string RRCParaMSS[MSS_BANDS];
-    
+
+    double IBCOR_Threshold;
     int IBCOR_Slices;
     int IBCOR_Sections;
     int IBPA_LineOffset;
@@ -196,6 +197,15 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
     app.add_option("--ibc-sections",
                    ips_.IBCOR_Sections,
                    "Split virtically section count for inter-band correlation calculating")->default_val(IBCV_DEF_SECTIONS);
+    app.add_option("--ibc-threshold", ips_.IBCOR_Threshold,
+                   "Threshold of valid inter-band correlation calculated parameter value"
+                   )->default_val(IBCV_DEF_THRESHOLD)->check([](const std::string & v) {
+        double dv = strtod(v.c_str(), NULL);
+        if (dv < 0.0 or dv >= 1.0) {
+            return "invalid threshold value";
+        }
+        return "";
+    });
     app.add_option("--line-offset",
                    ips_.IBPA_LineOffset,
                    "Line offset for inter-band pixel alignment processing")->default_val(IBPA_DEFAULT_LINEOFFSET);
@@ -268,7 +278,7 @@ void DefaultAction() {
     
     if (ip.doRRC4MSS) pp.DoRRC4MSS();
     
-    pp.CalcInterBandCorrelation(ip.IBCOR_Slices, ip.IBCOR_Sections);
+    pp.CalcInterBandCorrelation(ip.IBCOR_Slices, ip.IBCOR_Sections, ip.IBCOR_Threshold);
     pp.DoInterBandAlignment(ip.IBPA_BatchLines, ip.IBPA_LineOffset, ip.IBPA_OverlapLines);
 }
 

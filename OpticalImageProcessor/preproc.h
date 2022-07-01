@@ -221,7 +221,10 @@ public:
         }
     }
     
-    void CalcInterBandCorrelation(int slices = IBCV_DEF_SLICES, int sections = IBCV_DEF_SECTIONS, bool autoUnloadPAN = true) {
+    void CalcInterBandCorrelation(int slices = IBCV_DEF_SLICES,
+                                  int sections = IBCV_DEF_SECTIONS,
+                                  double threshold = IBCV_DEF_THRESHOLD,
+                                  bool autoUnloadPAN = true) {
         if (slices < IBCV_MIN_SLICES) {
             throw std::invalid_argument(xs("CalcInterBandCorrelation: at lease %d slice needed", IBCV_MIN_SLICES).s);
         }
@@ -328,11 +331,11 @@ public:
         OLOG("Inter-band correlation finished, result:");
         DumpInterBandShiftValues(slices, sections);
         OLOG("Filter invalid correlation values, result:");
-        FilterInterBandShiftValues(slices, sections);
+        FilterInterBandShiftValues(slices, sections, threshold);
         DumpInterBandShiftValues(slices, sections);
 
         OLOG("Try polynomial fitting ...");
-        DoCorrelationPolynomialFitting(slices, sections);
+        DoCorrelationPolynomialFitting(slices, sections, threshold);
         OLOG("Polynomial fitting done.");
         
         OLOG("CalcInterBandCorrelation(): done.");
@@ -476,13 +479,13 @@ protected:
              "---------------------------------------------------------");
     }
     
-    void FilterInterBandShiftValues(int slices, int sections) {
+    void FilterInterBandShiftValues(int slices, int sections, double threshold = IBCV_DEF_THRESHOLD) {
         double nan = std::numeric_limits<double>::quiet_NaN();
         for (int b = 0; b < MSS_BANDS; ++b) {
             int fc = 0;
             InterBandShift * shifts = mBandShift[b];
             for (int i = 0; i < slices * sections; ++i) {
-                if (shifts[i].rs < IBCV_DEF_THRESHOLD) {
+                if (shifts[i].rs < threshold) {
                     shifts[i].dx = nan;
                     shifts[i].dy = nan;
                 } else {
@@ -491,14 +494,14 @@ protected:
             }
             if (fc < IBCV_MIN_COUNT) {
                 xs s("Not enough valid correlation values for band#%d: %d valid values found, %d expected at least",
-                     b, fc, IBCV_MIN_COUNT);
+                     b + 1, fc, IBCV_MIN_COUNT);
                 OLOG("%s.", s.s);
                 throw std::runtime_error(s.s);
             }
         }
     }
     
-    void DoCorrelationPolynomialFitting(int slices, int sections) {
+    void DoCorrelationPolynomialFitting(int slices, int sections, double threshold = IBCV_DEF_THRESHOLD) {
         int crvPerBand = slices * sections;
         for (int b = 0; b < MSS_BANDS; ++b) {
             // x拟合为直线，y拟合为二次曲线
@@ -509,7 +512,7 @@ protected:
             scoped_ptr<double> yvals  = new double[crvPerBand];
             for (int i = 0; i < crvPerBand; ++i) {
                 const InterBandShift & ibs = mBandShift[b][i];
-                if (ibs.rs >= IBCV_DEF_THRESHOLD) {
+                if (ibs.rs >= threshold) {
                     cxvals[vvi] = ibs.cx;
                     xvals [vvi] = ibs.dx;
                     yvals [vvi] = ibs.dy;
