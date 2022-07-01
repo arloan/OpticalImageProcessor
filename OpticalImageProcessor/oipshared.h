@@ -68,7 +68,7 @@
 IMSUX_USE_NS
 
 struct FileDtor {
-    inline void operator () (FILE * f) { fclose(f); }
+    inline void operator () (FILE * f) { if (f) fclose(f); }
 };
 
 #define OLOGNEL(fmt, ...) printf(fmt, ##__VA_ARGS__)
