@@ -386,7 +386,7 @@ public:
         //}
         OLOG("Reading tiff image from file `%s' ...", leftImagePath.c_str());
         stop_watch::rst();
-        cv::Mat imageL = cv::imread( leftImagePath, cv::IMREAD_LOAD_GDAL);
+        cv::Mat imageL = cv::imread( leftImagePath, cv::IMREAD_UNCHANGED /*cv::IMREAD_LOAD_GDAL*/);
         auto es = stop_watch::tik().ellapsed;
         OLOG("Image size: %d cols, %d rows, type: %d, channels: %d.",
              imageL.cols, imageL.rows,
@@ -398,7 +398,7 @@ public:
         
         OLOG("Reading tiff image from file `%s' ...", rightImagePath.c_str());
         stop_watch::rst();
-        cv::Mat imageR = cv::imread(rightImagePath, cv::IMREAD_LOAD_GDAL);
+        cv::Mat imageR = cv::imread(rightImagePath, cv::IMREAD_UNCHANGED /*cv::IMREAD_LOAD_GDAL*/);
         es = stop_watch::tik().ellapsed;
         OLOG("Image size: %d cols, %d rows, type: %d, channels: %d.",
              imageR.cols, imageR.rows,
