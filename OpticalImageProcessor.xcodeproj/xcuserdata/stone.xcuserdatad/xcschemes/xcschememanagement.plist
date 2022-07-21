@@ -4,10 +4,15 @@
 <dict>
 	<key>SchemeUserState</key>
 	<dict>
-		<key>OpticalImageProcessor-prestitch.xcscheme</key>
+		<key>OpticalImageProcessor-auxsep.xcscheme</key>
 		<dict>
 			<key>orderHint</key>
 			<integer>1</integer>
+		</dict>
+		<key>OpticalImageProcessor-prestitch.xcscheme</key>
+		<dict>
+			<key>orderHint</key>
+			<integer>2</integer>
 		</dict>
 		<key>OpticalImageProcessor.xcscheme_^#shared#^_</key>
 		<dict>
