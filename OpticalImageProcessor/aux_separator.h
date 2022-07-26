@@ -218,7 +218,7 @@ protected:
                      comma_sep(mapOff).sep(),
                      fileOff,
                      comma_sep(fileOff).sep());
-                DumpAosFrameInfo(afi);
+                //DumpAosFrameInfo(afi);
             }
             valid++;
             remain -= frame - p + AOS_FRAME_BYTES;
@@ -241,7 +241,7 @@ protected:
         uint8_t imtrCache[IMTR_FRAME_BYTES * 2];
         int cacheBytes = 0;
         
-        uint32_t lastImtrSeq = -1;
+        uint32_t lastImtrSeq = 0; // 1-based
         uint32_t count = 0;
         long total = 0;
 
@@ -278,7 +278,7 @@ protected:
             }
             ImtrFrameInfo ifi;
             if (ValidateImtrFrame(imtrFrame, ifi)) {
-                if (lastImtrSeq == -1) {
+                if (lastImtrSeq == 0) {
                     mIMDTFileName = xs("%s_%s_%s_%04d%02d%02d_%02d%02d%02d.IMDT",
                                        mAFI.station,
                                        mAFI.satellite,
