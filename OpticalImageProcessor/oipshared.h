@@ -58,6 +58,9 @@
 #define IBPA_STEM_EXT       ".ALIGNED"
 #define TIFF_FILE_EXT       ".TIFF"
 #define RAW_FILE_EXT        ".RAW"
+#define AUX_FILE_EXT        ".AUX"
+#define STEM_EXT_PAN        ".PAN"
+#define STEM_EXT_MSS        ".MSS"
 
 #define BEGIN_NS(ns) namespace ns {
 #define END_NS }
