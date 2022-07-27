@@ -238,12 +238,21 @@ protected:
             throw errno_error("mmap IMDT file failed.");
         }
         
+        scoped_ptr<uint8_t> zeroData = new uint8_t[BYTES_PER_PANLINE * IMGSIG_PAN_LINES];
+        memset(zeroData, 0, BYTES_PER_PANLINE * IMGSIG_PAN_LINES);
+        
         uint8_t * p = map;
         size_t remain = sz;
         ImageFrameMeta ifm;
+        int lastSeq = 0;
         for (;;) {
             uint8_t * frame = NextImageDataFrame(p, remain, ifm);
             if (frame == nullptr) {
+                if (!ifm.frame_end) {
+                    OLOG("No furthur image frame, stop.");
+                    break;
+                }
+                
                 // TODO: how to handle this?
                 OLOG("incomplete image frame #%05d, ignored.", ifm.seq);
                 remain -= ifm.frame_end - p;
@@ -251,11 +260,30 @@ protected:
                 continue;
             }
             
+            if (ifm.seq > lastSeq + 1) {
+                OLOG("Missing image frame(s) of range[%06d,%06d], filling with zero data ...",
+                     lastSeq + 1, (int)(ifm.seq - 1));
+                
+                for (int i = 0; i < ifm.seq - lastSeq - 1; ++i) {
+                    WriteToFile(fAUX, zeroData, IMGSIG_AUX_ALLBYTES);
+                    WriteToFile(fPAN, zeroData, BYTES_PER_PANLINE * IMGSIG_PAN_LINES);
+                    WriteToFile(fMSS, zeroData, BYTES_PER_PANLINE * IMGSIG_MSS_LINES);
+                }
+            }
+            
             WriteAuxData(fAUX, frame);
             WriteImageData(fPAN, fMSS, frame + IMGSIG_AUX_ALLBYTES, ifm);
             remain -= ifm.frame_end - p;
             p = ifm.frame_end;
-            break;
+            lastSeq = ifm.seq;
+            
+            OLOG("%06d image frames processed.", lastSeq);
+        }
+    }
+    
+    void WriteToFile(FILE * f, const uint8_t * data, size_t n) {
+        if (fwrite(data, n, 1, f) == 0) {
+            throw errno_error("Write file content failed: ");
         }
     }
     
@@ -267,38 +295,34 @@ protected:
     
     void WriteImageData(FILE * fPAN, FILE * fMSS, const uint8_t * data, const ImageFrameMeta & ifm) {
         size_t subImageBytes = IMGSIG_IMBASE_LINES * IMGSIG_IMBASE_COLS * BYTES_PER_PIXEL;
-        scoped_ptr<uint8_t> imageFullLine = new uint8_t[subImageBytes * IMGSIG_IMG_HPARTS];
+        scoped_ptr<uint8_t> imageFullHStripe = new uint8_t[subImageBytes * IMGSIG_IMG_HPARTS];
         scoped_ptr<uint8_t> subImageBuff  = new uint8_t[subImageBytes];
         const uint8_t * p = data;
         
-        for (int r = 0; r < IMGSIG_PAN_VPARTS; ++r) {
+        for (int r = 0; r < IMGSIG_PAN_VPARTS + IMGSIG_MSS_VPARTS; ++r) {
             for (int c = 0; c < IMGSIG_IMG_HPARTS; ++c) {
                 int idx = r * IMGSIG_IMG_HPARTS + c;
                 auto bytes = ifm.sub_image_dwords[idx] * sizeof(uint32_t);
                 
                 // inflate sub image
                 InflateSubImage(ifm.z_ratio, p, bytes, subImageBuff, subImageBytes);
-                memcpy(imageFullLine + c, subImageBuff, subImageBytes);
+                MergeSubImage(subImageBuff, imageFullHStripe, c);
                 p += bytes;
             }
-            if (fwrite(imageFullLine, subImageBytes * IMGSIG_IMG_HPARTS, 1, fPAN) == 0) {
-                throw errno_error("Write PAN file content failed:");
+            if (fwrite(imageFullHStripe,
+                       subImageBytes * IMGSIG_IMG_HPARTS,
+                       1,
+                       r < IMGSIG_PAN_VPARTS ? fPAN : fMSS) == 0) {
+                throw errno_error("Write RAW image file content failed:");
             }
         }
-        
-        for (int r = 0; r < IMGSIG_MSS_VPARTS; ++r) {
-            for (int c = 0; c < IMGSIG_IMG_HPARTS; ++c) {
-                int idx = r * IMGSIG_IMG_HPARTS + c;
-                auto bytes = ifm.sub_image_dwords[idx] * sizeof(uint32_t);
-                
-                // inflate sub image
-                InflateSubImage(ifm.z_ratio, p, bytes, subImageBuff, subImageBytes);
-                memcpy(imageFullLine + c, subImageBuff, subImageBytes);
-                p += bytes;
-            }
-            if (fwrite(imageFullLine, subImageBytes * IMGSIG_IMG_HPARTS, 1, fMSS) == 0) {
-                throw errno_error("Write MSS file content failed:");
-            }
+    }
+    
+    void MergeSubImage(const uint8_t * subImage, uint8_t * image, int vSlice) {
+        for (int r = 0; r < IMGSIG_IMBASE_LINES; ++r) {
+            memcpy(image + r * BYTES_PER_PANLINE + vSlice * IMGSIG_IMBASE_COLS * BYTES_PER_PIXEL,
+                   subImage + r * IMGSIG_IMBASE_COLS * BYTES_PER_PIXEL,
+                   IMGSIG_IMBASE_COLS * BYTES_PER_PIXEL);
         }
     }
   
@@ -516,9 +540,12 @@ protected:
     }
     
     static uint8_t * NextImageDataFrame(uint8_t * p, size_t sz, ImageFrameMeta & ifm) {
-        if (sz <= IMGSIG_AUX_ALLBYTES + IMGSIG_META_BYTES) return nullptr;
+        ifm.frame_end = nullptr;
         
+        if (sz <= IMGSIG_AUX_ALLBYTES + IMGSIG_META_BYTES) return nullptr;
         uint8_t * sp = (uint8_t *)memmem(p, sz, IMGSIG_SIG, IMGSIG_SIG_BYTES);
+        if (!sp) return nullptr;
+        
         ifm.frame_end = sp + IMGSIG_META_BYTES;
         
         uint8_t camera = sp[IMGSIG_CAM_OFF];
