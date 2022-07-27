@@ -13,6 +13,7 @@
 
 #include "preproc.h"
 #include "stitcher.h"
+#include "aux_separator.h"
 
 USING_NS(OIP)
 
@@ -81,6 +82,18 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
     CLI::App app("Optical Satellite Image Pre-Processing/Processing Utility", "OpticalImageProcessor");
     app.set_version_flag("-v,--version", "1.1");
     app.require_subcommand(0, 1);
+    
+    // `auxsep` sub command arguments
+    std::string aosFilePath;
+    size_t offset = 0;
+    CLI::App & asa = * app.add_subcommand("auxsep",
+                                          "Do aux & image data separation");
+    asa.add_option("-O,--offset", offset, "Parse AOS file from specified byte offset")->default_val(0);
+    asa.add_option("file", aosFilePath, "AOS file path")->required()->check(CLI::ExistingFile);
+    asa.callback([&]() {
+        AuxSeparator as(aosFilePath, offset);
+        as.Separate(NULL);
+    });
     
     // `prestitch` sub command arguments
     CLI::App & psa = * app.add_subcommand("prestitch",
