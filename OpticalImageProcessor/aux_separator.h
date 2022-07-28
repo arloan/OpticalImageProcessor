@@ -22,6 +22,7 @@
 
 #include "oipshared.h"
 #include "CRC.h"
+#include "imageop.h"
 
 #define REPORT_PER_COUNT    5000
 
@@ -80,6 +81,19 @@
 #define IMGSIG_SIG_BYTES    4
 #define IMGSIG_CAMERA_OFF   4
 #define IMGSIG_CAMERA_BYTES 1
+#define IMGSIG_AUX_LINES    1024
+#define IMGSIG_AUX_BYTES    48
+#define IMGSIG_AUX_ALLBYTES (IMGSIG_AUX_BYTES * IMGSIG_AUX_LINES)
+#define IMGSIG_IMG_HPARTS   8
+#define IMGSIG_PAN_VPARTS   4
+#define IMGSIG_MSS_VPARTS   1
+#define IMGSIG_PAN_LINES    1024
+#define IMGSIG_MSS_LINES    256
+#define IMGSIG_IMBASE_LINES 256
+#define IMGSIG_IMBASE_COLS  1536
+#define IMGSIG_META_BYTES   172
+#define IMGSIG_CAM_OFF      4
+#define IMGSIG_CAM_BYTES    1
 #define IMGSIG_CAM_ZRATIO(x) (((uint8_t)x) & 0x3F)
 #define IMGSIG_ZRTO_NONE    0
 #define IMGSIG_ZRTO_M4P4    0x11
@@ -91,6 +105,19 @@
 #define IMGSIG_ZRTO_M16P16  0x33
 #define IMGSIG_ZRTO_M16P4   0x31
 #define IMGSIG_ZRTO_M16P8   0x32
+#define IMGSIG_FID_OFF      5
+#define IMGSIG_FID_BYTES    1
+#define IMGSIG_SEQ_OFF      6
+#define IMGSIG_SEQ_BYTES    2
+#define IMGSIG_IMGSZ_OFF    8
+#define IMGSIG_IMGSZ_BYTES  4
+#define IMGSIG_SUBIML_OFF   12
+#define IMGSIG_SUBIML_COUNT 40
+#define IMGSIG_SUBPANIM_CNT 32
+#define IMGSIG_SUBMSSIM_CNT 8
+#define IMGSIG_SUBIML_BYTES (IMGSIG_SUBIML_COUNT*4)
+
+BEGIN_NS(OIP)
 
 struct AosFileInfo {
     char station[16];
@@ -119,11 +146,22 @@ struct ImtrFrameInfo {
     const uint8_t * data;
 };
 
+struct ImageFrameMeta {
+    uint8_t camera : 1;
+    uint8_t master_or_backup : 1;
+    uint8_t z_ratio : 6;
+    uint8_t file_id;
+    uint16_t seq;
+    uint32_t image_dwords;
+    uint32_t sub_image_dwords[IMGSIG_SUBIML_COUNT];
+    uint8_t * frame_end;
+};
+
 class AuxSeparator
 {
 public:
     AuxSeparator(const std::string & aosFile, size_t offset = 0) :
-    mAosFile(aosFile), mAOS(0), mMapAOS(nullptr), mMapSize(0), mMapOffset(offset)
+    mAosFile(aosFile), mIsIMDT(false), mAOS(0), mMapAOS(nullptr), mMapSize(0), mMapOffset(offset)
     {
         InitializeCriticalSection(&mAosFrameLock);
         int ps = getpagesize();
@@ -133,13 +171,18 @@ public:
         }
         
         auto filePath = std::filesystem::path(aosFile);
-        if (!ParseFileInfoFromName(filePath.filename().string().c_str(), mAFI)) {
-            auto pd = filePath.parent_path();
-            if (!ParseFileInfoFromName(pd.filename().string().c_str(), mAFI)) {
-                throw std::invalid_argument("unrecognized AOS file name pattern");
+        if (strcasecmp(filePath.extension().string().c_str(), ".IMDT") == 0) {
+            mIsIMDT = true;
+            mIMDTFileName = aosFile;
+        } else {
+            if (!ParseFileInfoFromName(filePath.filename().string().c_str(), mAFI)) {
+                auto pd = filePath.parent_path();
+                if (!ParseFileInfoFromName(pd.filename().string().c_str(), mAFI)) {
+                    throw std::invalid_argument("unrecognized AOS file name pattern");
+                }
             }
+            DumpAosFileInfo(mAFI);
         }
-        DumpAosFileInfo(mAFI);
     }
     
     ~AuxSeparator()
@@ -154,17 +197,160 @@ public:
             od = outputDir;
         }
         
-        OLOG("Launching AOS file separation ...");
-        auto t1 = std::thread(&AuxSeparator::SeparateAosFile, this, mAosFile, od);
-        OLOG("Launching AOS frame parsering ...");
-        auto t2 = std::thread(&AuxSeparator::DataTransFrameParser, this);
-        
-        t2.join();
-        t1.join();
+        if (!mIsIMDT)
+        {
+            OLOG("Launching AOS file separation ...");
+            auto t1 = std::thread(&AuxSeparator::SeparateAosFile, this, mAosFile, od);
+            OLOG("Launching AOS frame parsering ...");
+            auto t2 = std::thread(&AuxSeparator::DataTransFrameParser, this);
+            
+            t2.join();
+            t1.join();
+            OLOG("Parsing done.");
+        }
+
+        OLOG("Separating aux & image data ...");
+        SeparateImageData();
         OLOG("Done.");
     }
     
 protected:
+    struct FDDtor {
+        inline void operator () (int fd) { if (fd > 0) close(fd); }
+    };
+    struct MMapDtor {
+        MMapDtor(size_t sz) : _sz(sz) {}
+        inline void operator () (void * map) { if (map) munmap(map, _sz); }
+        size_t _sz;
+    };
+    void SeparateImageData() {
+        stop_watch sw;
+        size_t sz = IMO::FileSize(mIMDTFileName);
+        
+        std::string auxFileName = IMO::BuildOutputFilePath(mIMDTFileName, "", AUX_FILE_EXT);
+        std::string panFileName = IMO::BuildOutputFilePath(mIMDTFileName, STEM_EXT_PAN, RAW_FILE_EXT);
+        std::string mssFileName = IMO::BuildOutputFilePath(mIMDTFileName, STEM_EXT_MSS, RAW_FILE_EXT);
+        scoped_ptr<FILE, FileDtor> fAUX = fopen(auxFileName.c_str(), "wb");
+        scoped_ptr<FILE, FileDtor> fPAN = fopen(panFileName.c_str(), "wb");
+        scoped_ptr<FILE, FileDtor> fMSS = fopen(mssFileName.c_str(), "wb");
+
+        scoped_ob<int, FDDtor> imdt = open(mIMDTFileName.c_str(), O_RDONLY);
+        if (imdt.get() < 0) throw errno_error("open IMDT file failed");
+        
+        scoped_ptr<uint8_t, MMapDtor> map((uint8_t *)mmap(nullptr, sz, PROT_READ, MAP_NOCACHE | MAP_FILE | MAP_SHARED, imdt, 0), sz);
+        if (map.get() == MAP_FAILED) {
+            throw errno_error("mmap IMDT file failed.");
+        }
+        
+        scoped_ptr<uint8_t> zeroData = new uint8_t[BYTES_PER_PANLINE * IMGSIG_PAN_LINES];
+        memset(zeroData, 0, BYTES_PER_PANLINE * IMGSIG_PAN_LINES);
+        
+        uint8_t * p = map;
+        size_t remain = sz;
+        ImageFrameMeta ifm;
+        int lastSeq = 0;
+        for (;;) {
+            uint8_t * frame = NextImageDataFrame(p, remain, ifm);
+            if (frame == nullptr) {
+                if (!ifm.frame_end) {
+                    OLOG("No furthur image frame, stop.");
+                    break;
+                }
+                
+                // TODO: how to handle this?
+                OLOG("incomplete image frame #%05d, ignored.", ifm.seq);
+                remain -= ifm.frame_end - p;
+                p = ifm.frame_end;
+                continue;
+            }
+            
+            if (ifm.seq > lastSeq + 1) {
+                OLOG("Missing image frame(s) of range[%06d,%06d], filling with zero data ...",
+                     lastSeq + 1, (int)(ifm.seq - 1));
+                
+                for (int i = 0; i < ifm.seq - lastSeq - 1; ++i) {
+                    WriteToFile(fAUX, zeroData, IMGSIG_AUX_ALLBYTES);
+                    WriteToFile(fPAN, zeroData, BYTES_PER_PANLINE * IMGSIG_PAN_LINES);
+                    WriteToFile(fMSS, zeroData, BYTES_PER_PANLINE * IMGSIG_MSS_LINES);
+                }
+            }
+            
+            WriteAuxData(fAUX, frame);
+            WriteImageData(fPAN, fMSS, frame + IMGSIG_AUX_ALLBYTES, ifm);
+            remain -= ifm.frame_end - p;
+            p = ifm.frame_end;
+            lastSeq = ifm.seq;
+            
+            if (lastSeq % 10 == 0) OLOG("%4d image frames processed.", lastSeq);
+        }
+        auto es = sw.tick().ellapsed;
+        OLOG("%4d image frames processed.", lastSeq);
+        OLOG("%s bytes of IMDT extraction in %s seconds (%s MBps).",
+             comma_sep(sz).sep(),
+             comma_sep(es).sep(),
+             comma_sep(sz/es/(1024.0*1024.0)).sep());
+    }
+    
+    void WriteToFile(FILE * f, const uint8_t * data, size_t n) {
+        if (fwrite(data, n, 1, f) == 0) {
+            throw errno_error("Write file content failed: ");
+        }
+    }
+    
+    void WriteAuxData(FILE * fAUX, const uint8_t * aux) {
+        if (fwrite(aux, IMGSIG_AUX_ALLBYTES, 1, fAUX) == 0) {
+            throw errno_error("Write AUX file content failed:");
+        }
+    }
+    
+    void WriteImageData(FILE * fPAN, FILE * fMSS, const uint8_t * data, const ImageFrameMeta & ifm) {
+        size_t subImageBytes = IMGSIG_IMBASE_LINES * IMGSIG_IMBASE_COLS * BYTES_PER_PIXEL;
+        scoped_ptr<uint8_t> imageFullHStripe = new uint8_t[subImageBytes * IMGSIG_IMG_HPARTS];
+        scoped_ptr<uint8_t> subImageBuff  = new uint8_t[subImageBytes];
+        const uint8_t * p = data;
+        
+        for (int r = 0; r < IMGSIG_PAN_VPARTS + IMGSIG_MSS_VPARTS; ++r) {
+            for (int c = 0; c < IMGSIG_IMG_HPARTS; ++c) {
+                int idx = r * IMGSIG_IMG_HPARTS + c;
+                auto bytes = ifm.sub_image_dwords[idx] * sizeof(uint32_t);
+                
+                // inflate sub image
+                InflateSubImage(ifm.z_ratio, p, bytes, subImageBuff, subImageBytes);
+                MergeSubImage(subImageBuff, imageFullHStripe, c);
+                p += bytes;
+            }
+            if (fwrite(imageFullHStripe,
+                       subImageBytes * IMGSIG_IMG_HPARTS,
+                       1,
+                       r < IMGSIG_PAN_VPARTS ? fPAN : fMSS) == 0) {
+                throw errno_error("Write RAW image file content failed:");
+            }
+        }
+    }
+    
+    void MergeSubImage(const uint8_t * subImage, uint8_t * image, int vSlice) {
+        for (int r = 0; r < IMGSIG_IMBASE_LINES; ++r) {
+            memcpy(image + r * BYTES_PER_PANLINE + vSlice * IMGSIG_IMBASE_COLS * BYTES_PER_PIXEL,
+                   subImage + r * IMGSIG_IMBASE_COLS * BYTES_PER_PIXEL,
+                   IMGSIG_IMBASE_COLS * BYTES_PER_PIXEL);
+        }
+    }
+  
+    void InflateSubImage(uint8_t ratio, const uint8_t * zImage, size_t zSize, uint8_t * inflated, size_t inflatedSize) {
+        if (ratio == IMGSIG_ZRTO_NONE) {
+            memcpy(inflated, zImage, inflatedSize);
+        } else {
+            throw std::runtime_error("JPEG2000 infation not implemented, yet.");
+        }
+        // handle byte order
+        uint16_t * wp = (uint16_t *)inflated;
+        auto words = inflatedSize / 2;
+        for (auto i = 0; i < words; ++i) {
+            auto & w = wp[i];
+            w = (w & 0x00FF) << 8 | (w & 0xFF00) >> 8;
+        }
+    }
+    
     void SeparateAosFile(const std::string & aosFile, const std::string & outDir) {
         mAOS = open(aosFile.c_str(), O_RDONLY);
         if (mAOS < 0) throw errno_error("open AOS file failed");
@@ -370,6 +556,37 @@ protected:
         return (uint8_t *)memmem(p, sz, SYNC_BYTES, SYNC_BYTES_LEN);
     }
     
+    static uint8_t * NextImageDataFrame(uint8_t * p, size_t sz, ImageFrameMeta & ifm) {
+        ifm.frame_end = nullptr;
+        
+        if (sz <= IMGSIG_AUX_ALLBYTES + IMGSIG_META_BYTES) return nullptr;
+        uint8_t * sp = (uint8_t *)memmem(p, sz, IMGSIG_SIG, IMGSIG_SIG_BYTES);
+        if (!sp) return nullptr;
+        
+        ifm.frame_end = sp + IMGSIG_META_BYTES;
+        
+        uint8_t camera = sp[IMGSIG_CAM_OFF];
+        ifm.camera = (camera & 0x80) >> 7;
+        ifm.master_or_backup = (camera & 0x40) >> 6;
+        ifm.z_ratio = IMGSIG_CAM_ZRATIO(camera);
+        ifm.file_id = sp[IMGSIG_FID_OFF];
+        
+        uint16_t w = *((uint16_t *)(sp + IMGSIG_SEQ_OFF));
+        ifm.seq = ntohs(w);
+        
+        uint32_t dw = *((uint32_t *)(sp + IMGSIG_IMGSZ_OFF));
+        ifm.image_dwords = ntohl(dw);
+        
+        uint32_t * psi = (uint32_t *)(sp + IMGSIG_SUBIML_OFF);
+        for (int i = 0; i < IMGSIG_SUBIML_COUNT; ++i) {
+            ifm.sub_image_dwords[i] = ntohl(psi[i]);
+        }
+        
+        int dataBytes = ifm.image_dwords * sizeof(uint32_t) + IMGSIG_AUX_ALLBYTES;
+        if (sp - p < dataBytes) return nullptr;
+        return sp - dataBytes;
+    }
+    
     static int ValidateAosFrame(uint8_t * frame, int len, AosFrameInfo & afi) {
         uint8_t vcid = *(frame + AOS_VCID_OFF) & AOS_VCID_MASK;
         uint32_t vcduSeq = *(uint32_t *)(frame + AOS_VCDUSEQ_OFF - 1) & 0xFFFFFF00; // big-endian
@@ -455,10 +672,12 @@ private:
     CRITICAL_SECTION mAosFrameLock;
     std::string mIMDTFileName;
     
+    bool mIsIMDT;
     int mAOS;
     void * mMapAOS;
     size_t mMapSize;
     size_t mMapOffset;
 };
 
+END_NS
 #endif /* AuxSeparator_h */
