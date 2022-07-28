@@ -161,7 +161,7 @@ class AuxSeparator
 {
 public:
     AuxSeparator(const std::string & aosFile, size_t offset = 0) :
-    mAosFile(aosFile), mAOS(0), mMapAOS(nullptr), mMapSize(0), mMapOffset(offset)
+    mAosFile(aosFile), mIsIMDT(false), mAOS(0), mMapAOS(nullptr), mMapSize(0), mMapOffset(offset)
     {
         InitializeCriticalSection(&mAosFrameLock);
         int ps = getpagesize();
@@ -171,13 +171,18 @@ public:
         }
         
         auto filePath = std::filesystem::path(aosFile);
-        if (!ParseFileInfoFromName(filePath.filename().string().c_str(), mAFI)) {
-            auto pd = filePath.parent_path();
-            if (!ParseFileInfoFromName(pd.filename().string().c_str(), mAFI)) {
-                throw std::invalid_argument("unrecognized AOS file name pattern");
+        if (strcasecmp(filePath.extension().string().c_str(), ".IMDT") == 0) {
+            mIsIMDT = true;
+            mIMDTFileName = aosFile;
+        } else {
+            if (!ParseFileInfoFromName(filePath.filename().string().c_str(), mAFI)) {
+                auto pd = filePath.parent_path();
+                if (!ParseFileInfoFromName(pd.filename().string().c_str(), mAFI)) {
+                    throw std::invalid_argument("unrecognized AOS file name pattern");
+                }
             }
+            DumpAosFileInfo(mAFI);
         }
-        DumpAosFileInfo(mAFI);
     }
     
     ~AuxSeparator()
@@ -192,7 +197,7 @@ public:
             od = outputDir;
         }
         
-        if (getenv("OIP_AOS"))
+        if (!mIsIMDT)
         {
             OLOG("Launching AOS file separation ...");
             auto t1 = std::thread(&AuxSeparator::SeparateAosFile, this, mAosFile, od);
@@ -202,8 +207,6 @@ public:
             t2.join();
             t1.join();
             OLOG("Parsing done.");
-        } else {
-            mIMDTFileName = "NB_MN200-ZK_CMOS-2_20220601_223049.IMDT";
         }
 
         OLOG("Separating aux & image data ...");
@@ -221,6 +224,7 @@ protected:
         size_t _sz;
     };
     void SeparateImageData() {
+        stop_watch sw;
         size_t sz = IMO::FileSize(mIMDTFileName);
         
         std::string auxFileName = IMO::BuildOutputFilePath(mIMDTFileName, "", AUX_FILE_EXT);
@@ -277,8 +281,14 @@ protected:
             p = ifm.frame_end;
             lastSeq = ifm.seq;
             
-            OLOG("%06d image frames processed.", lastSeq);
+            if (lastSeq % 10 == 0) OLOG("%4d image frames processed.", lastSeq);
         }
+        auto es = sw.tick().ellapsed;
+        OLOG("%4d image frames processed.", lastSeq);
+        OLOG("%s bytes of IMDT extraction in %s seconds (%s MBps).",
+             comma_sep(sz).sep(),
+             comma_sep(es).sep(),
+             comma_sep(sz/es/(1024.0*1024.0)).sep());
     }
     
     void WriteToFile(FILE * f, const uint8_t * data, size_t n) {
@@ -331,6 +341,13 @@ protected:
             memcpy(inflated, zImage, inflatedSize);
         } else {
             throw std::runtime_error("JPEG2000 infation not implemented, yet.");
+        }
+        // handle byte order
+        uint16_t * wp = (uint16_t *)inflated;
+        auto words = inflatedSize / 2;
+        for (auto i = 0; i < words; ++i) {
+            auto & w = wp[i];
+            w = (w & 0x00FF) << 8 | (w & 0xFF00) >> 8;
         }
     }
     
@@ -655,6 +672,7 @@ private:
     CRITICAL_SECTION mAosFrameLock;
     std::string mIMDTFileName;
     
+    bool mIsIMDT;
     int mAOS;
     void * mMapAOS;
     size_t mMapSize;

@@ -89,7 +89,9 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
     CLI::App & asa = * app.add_subcommand("auxsep",
                                           "Do aux & image data separation");
     asa.add_option("-O,--offset", offset, "Parse AOS file from specified byte offset")->default_val(0);
-    asa.add_option("file", aosFilePath, "AOS file path")->required()->check(CLI::ExistingFile);
+    asa.add_option("file", aosFilePath,
+                   "AOS or IMDT file path, '-O/--offset' does not apply if file is an IMDT file"
+                   )->required()->check(CLI::ExistingFile);
     asa.callback([&]() {
         AuxSeparator as(aosFilePath, offset);
         as.Separate(NULL);
