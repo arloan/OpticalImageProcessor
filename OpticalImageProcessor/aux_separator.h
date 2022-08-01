@@ -117,6 +117,26 @@
 #define IMGSIG_SUBMSSIM_CNT 8
 #define IMGSIG_SUBIML_BYTES (IMGSIG_SUBIML_COUNT*4)
 
+#define Z_EVEN_FRAME        0xFFFFFFF0
+#define Z_ODD_FRAME         0xFFFFFFF1
+#define Z_IMGIDX_OFF        4
+#define Z_IMGIDX_BYTES      4
+#define Z_ZFORMAT_OFF       8
+#define Z_ZFORMAT_BYTES     1
+#define Z_ZFORMAT_JP2       0x04
+#define Z_ZFJP2_INC_EPH     0x10
+#define Z_ZFJP2_INC_SOP     0x20
+#define Z_ZFJP2_INC_PLT     0x40
+#define Z_ZFJP2_INC_PPT     0x80
+#define Z_VFORMAT_OFF       9
+#define Z_VFORMAT_BYTES     1
+#define Z_HDRVER_OFF        11
+#define Z_HDRVER_BYTES      1
+#define Z_HDRVER_VALUE      0x02 // AppID: 0xFF82
+#define Z_DATADWORDS_OFF    12
+#define Z_DATADWORDS_BYTES  4
+#define Z_ZDATA_OFF         16
+
 BEGIN_NS(OIP)
 
 struct AosFileInfo {
@@ -155,6 +175,16 @@ struct ImageFrameMeta {
     uint32_t image_dwords;
     uint32_t sub_image_dwords[IMGSIG_SUBIML_COUNT];
     uint8_t * frame_end;
+};
+
+struct ZImageHeader {
+    uint32_t field_dlmt;
+    uint32_t image_idx;
+    uint8_t code_format;
+    uint8_t video_format;
+    uint8_t reserved;
+    uint8_t version;
+    uint32_t data_dwords;
 };
 
 class AuxSeparator
@@ -340,8 +370,14 @@ protected:
         if (ratio == IMGSIG_ZRTO_NONE) {
             memcpy(inflated, zImage, inflatedSize);
         } else {
-            throw std::runtime_error("JPEG2000 infation not implemented, yet.");
+            ZImageHeader zih = { 0 };
+            ParseZImageHeader(zImage, zih);
+            
+            cv::Mat indata(1, (int)(zih.data_dwords * 4 / BYTES_PER_PIXEL), CV_16UC1, (void *)(zImage + Z_ZDATA_OFF));
+            cv::Mat dzBuff(IMGSIG_IMBASE_LINES, IMGSIG_IMBASE_COLS, CV_16UC1, inflated);
+            cv::imdecode(indata, cv::IMREAD_UNCHANGED, &dzBuff);
         }
+        
         // handle byte order
         uint16_t * wp = (uint16_t *)inflated;
         auto words = inflatedSize / 2;
@@ -551,6 +587,28 @@ protected:
     }
     
 protected:
+    static void ParseZImageHeader(const uint8_t * block, ZImageHeader & zih) {
+        uint32_t dw = *(uint32_t *)block;
+        zih.field_dlmt = dw;
+        dw = *((uint32_t *)(block + Z_IMGIDX_OFF));
+        zih.image_idx = ntohl(dw);
+        zih.code_format = block[Z_ZFORMAT_OFF];
+        zih.video_format = block[Z_VFORMAT_OFF];
+        zih.version = block[Z_HDRVER_OFF];
+        dw = *((uint32_t *)(block + Z_DATADWORDS_OFF));
+        zih.data_dwords = ntohl(dw);
+
+        if (zih.field_dlmt != Z_EVEN_FRAME && zih.field_dlmt != Z_ODD_FRAME) {
+            throw std::invalid_argument(xs("invalid field delimiter: %08X", zih.field_dlmt).s);
+        }
+        if (!(zih.code_format & Z_ZFORMAT_JP2)) {
+            throw std::invalid_argument(xs("invalid code format: %04X, JP2 expected", zih.code_format).s);
+        }
+        if (zih.version != Z_HDRVER_VALUE) {
+            throw std::invalid_argument(xs("unknown header version: %04X", zih.version).s);
+        }
+    }
+    
     static uint8_t * NextAosFrame(uint8_t * p, size_t sz) {
         if (sz < AOS_FRAME_BYTES) return nullptr;
         return (uint8_t *)memmem(p, sz, SYNC_BYTES, SYNC_BYTES_LEN);

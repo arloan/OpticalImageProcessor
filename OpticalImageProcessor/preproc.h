@@ -356,7 +356,7 @@ public:
                                            , sectionOverlap, IBPA_MAX_LINEOVERLAP).s);
         }
         if (linePerSection > 32767) {
-            throw std::invalid_argument("Row number exceeds OpenCV allowd value");
+            throw std::invalid_argument("Row number exceeds OpenCV allowed value");
         }
         if (linePerSection < sectionOverlap * 2) {
             throw std::invalid_argument("Lines per section too small or section overlapped lines too large");
