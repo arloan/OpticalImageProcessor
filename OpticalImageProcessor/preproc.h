@@ -249,7 +249,7 @@ public:
         nc::NdArray<uint16_t> baseImage16U(mImagePAN.get(), (int)mLinesPAN, PIXELS_PER_LINE, false);
 
         for (int sec = 0; sec < sections; ++sec) {
-            OLOG(":::: #%d section processing ::::", sec);
+            OLOG(":::: #%d section processing ::::", sec + 1);
             for (int i = 0; i < slices; ++i)
             {
                 OLOG("Extracting #%d slice from PAN image as base slice ...", i);
@@ -350,6 +350,7 @@ public:
     // processing portion by portion of input image for now.
     void DoInterBandAlignment(int linePerSection, int lineOffset = 0,
                               int sectionOverlap = IBPA_DEFAULT_LINEOVERLAP,
+                              bool keepLeadingLines = false,
                               bool autoUnloadRawMSS = true) {
         if (sectionOverlap > IBPA_MAX_LINEOVERLAP) {
             throw std::invalid_argument(xs("Overlap value %d exceeds maximum allowed value(%d)"
@@ -371,7 +372,8 @@ public:
         size_t offset = lineOffset;
         int processedLines = 0;
         int sections = (int)((mLinesMSS - lineOffset) / (linePerSection - sectionOverlap)) + 1;
-        mAlignedMSS.create((int)(mLinesMSS - lineOffset - sectionOverlap), PIXELS_PER_MSSBAND, CV_16UC4);
+        mAlignedMSS.create((int)(mLinesMSS - lineOffset - (keepLeadingLines ? 0 : sectionOverlap)),
+                           PIXELS_PER_MSSBAND, CV_16UC4);
         stop_watch sw;
         
         for (int i = 0; ; ++i) {
@@ -387,6 +389,14 @@ public:
             OLOG("Doing inter-band alignment of section %d/%d ...", i+1, sections);
             cv::Mat sectionMat = DoInterBandAlignment(offset, (int)lines);
             OLOG("Copying to final image ...");
+            if (i == 0 && keepLeadingLines) {
+                memcpy(mAlignedMSS.ptr(0),
+                       sectionMat.ptr(0),
+                       (size_t)sectionOverlap * PIXELS_PER_MSSBAND * sectionMat.elemSize());
+                processedLines += sectionOverlap;
+                OLOG("Leading lines copied.");
+            }
+            
             memcpy(mAlignedMSS.ptr(processedLines),
                    sectionMat.ptr(sectionOverlap),
                    (size_t)(lines - sectionOverlap) * PIXELS_PER_MSSBAND * sectionMat.elemSize());

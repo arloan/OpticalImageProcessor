@@ -34,6 +34,7 @@ struct InputParameters {
     
     bool doRRC4PAN;
     bool doRRC4MSS;
+    bool keepLeadingOverlappedLines;
     bool outputRrcPanTiff;
     
     InputParameters() :
@@ -44,6 +45,7 @@ struct InputParameters {
         IBPA_OverlapLines(IBPA_DEFAULT_LINEOVERLAP),
         doRRC4PAN(false),
         doRRC4MSS(true),
+        keepLeadingOverlappedLines(false),
         outputRrcPanTiff(false)
     {}
 };
@@ -231,6 +233,9 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
                    ips_.IBPA_OverlapLines,
                    "Overlapped lines for each sibling portion during inter-band pixel alignment processing"
                    "")->default_val(IBPA_DEFAULT_LINEOVERLAP);
+    app.add_flag  ("-k,--keep-leading",
+                   ips_.keepLeadingOverlappedLines,
+                   "Keep leading overlapped lines of inter-band pixel aligned MSS image.")->default_val(false);
     
     app.callback([&](){
         if (app.get_subcommands().size() == 0) {
@@ -294,7 +299,7 @@ void DefaultAction() {
     if (ip.doRRC4MSS) pp.DoRRC4MSS();
     
     pp.CalcInterBandCorrelation(ip.IBCOR_Slices, ip.IBCOR_Sections, ip.IBCOR_Threshold);
-    pp.DoInterBandAlignment(ip.IBPA_BatchLines, ip.IBPA_LineOffset, ip.IBPA_OverlapLines);
+    pp.DoInterBandAlignment(ip.IBPA_BatchLines, ip.IBPA_LineOffset, ip.IBPA_OverlapLines, ip.keepLeadingOverlappedLines);
 }
 
 int main(int argc, const char * argv[]) {
