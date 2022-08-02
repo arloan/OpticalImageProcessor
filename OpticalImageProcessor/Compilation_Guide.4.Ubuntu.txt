@@ -37,14 +37,11 @@ brew install cmake
 cd OpticalImageProcessor
 mkdir build
 cd build
+# for debug build
 cmake ../OpticalImageProcessor
+# for release build
+cmake -DCMAKE_BUILD_TYPE=Release ../OpticalImageProcessor
+# build selected build type
 cmake --build .
-
-In some cases, cmake complains it still cannot find <CLI/CLI.hpp> and/or <gdal_priv.h>,
-please modify OpticalImageProcessor/CMakeLists.txt, add the following two lines at proper position:
-
-target_include_directories(${PROJECT_NAME} PUBLIC /home/linuxbrew/.linuxbrew/include)
-target_include_directories(${PROJECT_NAME} PUBLIC ${GDAL_INCLUDE_DIRS})
-
 
 Good luck!

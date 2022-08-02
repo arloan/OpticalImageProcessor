@@ -267,7 +267,12 @@ protected:
         scoped_ob<int, FDDtor> imdt = open(mIMDTFileName.c_str(), O_RDONLY);
         if (imdt.get() < 0) throw errno_error("open IMDT file failed");
         
-        scoped_ptr<uint8_t, MMapDtor> map((uint8_t *)mmap(nullptr, sz, PROT_READ, MAP_NOCACHE | MAP_FILE | MAP_SHARED, imdt, 0), sz);
+#ifdef __APPLE__
+        int flags = MAP_FILE | MAP_SHARED | MAP_NOCACHE;
+#else
+        int flags = MAP_FILE | MAP_SHARED;
+#endif
+        scoped_ptr<uint8_t, MMapDtor> map((uint8_t *)mmap(nullptr, sz, PROT_READ, flags, imdt, 0), sz);
         if (map.get() == MAP_FAILED) {
             throw errno_error("mmap IMDT file failed.");
         }
@@ -394,7 +399,12 @@ protected:
         struct stat st = { 0 };
         if (fstat(mAOS, &st)) throw errno_error("query file stat failed.");
         mMapSize = (size_t)st.st_size - mMapOffset;
-        if ((mMapAOS = mmap(nullptr, mMapSize, PROT_READ, MAP_NOCACHE | MAP_FILE | MAP_SHARED, mAOS, mMapOffset)) == MAP_FAILED) {
+#ifdef __APPLE__
+        int flags = MAP_FILE | MAP_SHARED | MAP_NOCACHE;
+#else
+        int flags = MAP_FILE | MAP_SHARED;
+#endif
+        if ((mMapAOS = mmap(nullptr, mMapSize, PROT_READ, flags, mAOS, mMapOffset)) == MAP_FAILED) {
             throw errno_error("mmap AOS file failed.");
         }
         

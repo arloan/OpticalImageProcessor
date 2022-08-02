@@ -12,9 +12,17 @@ find_package(GDAL REQUIRED)
 
 add_executable(${PROJECT_NAME} main.cpp)
 
+if (UNIX AND NOT APPLE)
+target_include_directories(${PROJECT_NAME} PUBLIC /home/linuxbrew/.linuxbrew/include)
+endif()
 target_include_directories(${PROJECT_NAME} PUBLIC /usr/local/include)
 target_include_directories(${PROJECT_NAME} PUBLIC ${NumCPP_INCLUDE_DIRS})
 target_include_directories(${PROJECT_NAME} PUBLIC ${CLI11_INCLUDE_DIRS})
+target_include_directories(${PROJECT_NAME} PUBLIC ${GDAL_INCLUDE_DIRS})
 
 target_link_libraries(${PROJECT_NAME} LINK_PUBLIC ${OpenCV_LIBS})
 target_link_libraries(${PROJECT_NAME} LINK_PUBLIC ${GDAL_LIBRARIES})
+
+if (UNIX AND NOT APPLE)
+target_link_options(${PROJECT_NAME} PUBLIC "-Wl,--copy-dt-needed-entries")
+endif()
