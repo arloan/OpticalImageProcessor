@@ -69,10 +69,7 @@
 /// https://github.com/arloan/libimsux
 #include <libimsux/imsux.hxx>
 IMSUX_USE_NS
-
-struct FileDtor {
-    inline void operator () (FILE * f) { if (f) fclose(f); }
-};
+typedef file_dtor FileDtor;
 
 #define OLOGNEL(fmt, ...) printf(fmt, ##__VA_ARGS__)
 #define OLOG(fmt, ...)  printf(fmt "\n", ##__VA_ARGS__)

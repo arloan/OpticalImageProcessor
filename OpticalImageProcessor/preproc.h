@@ -186,7 +186,7 @@ public:
     
     // Relative radiation correction
     void DoRRC4PAN() {
-        if (mImagePAN.isNull()) throw std::logic_error("PAN raw image data not loaded, call `LoadPAN()' first");
+        if (mImagePAN.is_null()) throw std::logic_error("PAN raw image data not loaded, call `LoadPAN()' first");
         
         mRRCParamPAN = IMO::LoadRRCParamFile(mRrcPanFile.c_str(), PIXELS_PER_LINE);
         
@@ -201,7 +201,7 @@ public:
     
     void DoRRC4MSS() {
         for (int b = 0; b < MSS_BANDS; ++b) {
-            if (mImageBandMSS[b].isNull()) throw std::logic_error("MSS raw image data not loaded, call `LoadMSS()' first");
+            if (mImageBandMSS[b].is_null()) throw std::logic_error("MSS raw image data not loaded, call `LoadMSS()' first");
         }
         
         int rrcLinesMSS = PIXELS_PER_LINE / MSS_BANDS;

@@ -55,7 +55,7 @@ public:
                                   size_t total = 0,
                                   char * buff = NULL) {
         scoped_ptr<FILE, FileDtor> f = fopen(filePath.c_str(), "rb");
-        if (f.isNull()) throw std::invalid_argument(xs("cannot open file [%s]: %d", filePath.c_str(), errno).s);
+        if (f.is_null()) throw std::invalid_argument(xs("cannot open file [%s]: %d", filePath.c_str(), errno).s);
         
         size_t want_size = total;
         if (total == 0) {
@@ -83,7 +83,7 @@ public:
     
     static size_t WriteBufferToFile(const char * buff, size_t size, const std::string & saveFilePath) {
         scoped_ptr<FILE, FileDtor> f = fopen(saveFilePath.c_str(), "wb");
-        if (f.isNull()) throw std::runtime_error(xs("open file [%s] failed: %", saveFilePath.c_str(), errno).s);
+        if (f.is_null()) throw std::runtime_error(xs("open file [%s] failed: %", saveFilePath.c_str(), errno).s);
         
         size_t unit = (int)std::min((size_t)8 * 1024 * 1024, size); // 8MB
         size_t written = 0;
@@ -140,7 +140,7 @@ public:
     static RRCParam * LoadRRCParamFile(const char * paramFilePath, int expectedLines) {
         OLOG("Loading RRC paramter from file `%s' ...", paramFilePath);
         scoped_ptr<FILE, FileDtor> f = fopen(paramFilePath, "rb");
-        if (f.isNull()) throw errno_error("open RRC Param file failed");
+        if (f.is_null()) throw errno_error("open RRC Param file failed");
         
         const int bn = 1024;
         char buff[bn];
