@@ -197,7 +197,7 @@ public:
         int ps = getpagesize();
         if (offset % ps != 0) {
             mMapOffset = offset / ps * ps;
-            OLOG("WARNING: offset not aligned with system memory page size, adjusted to %ld (0x%lX).", mMapOffset, mMapOffset);
+            LOGW("offset not aligned with system memory page size, adjusted to %ld (0x%lX).", mMapOffset, mMapOffset);
         }
         
         auto filePath = std::filesystem::path(aosFile);
@@ -529,7 +529,7 @@ protected:
                 
                 if (lastImtrSeq + 1 != ifi.seq) {
                     // TODO: how to handle this situation?
-                    OLOG("WARNING: missing or invalid image transfer frame(s) #%08d-%08d", lastImtrSeq+1, ifi.seq-1);
+                    LOGW("missing or invalid image transfer frame(s) #%08d-%08d", lastImtrSeq+1, ifi.seq-1);
                 }
                 
                 lastImtrSeq = ifi.seq;
@@ -557,11 +557,11 @@ protected:
     
     bool ValidateImtrFrame(uint8_t * frame, ImtrFrameInfo & ifi) {
         if (memcmp(frame, IMTR_SIG, IMTR_SIG_BYTES) != 0) {
-            OLOG("WARNING: image trans frame head signature not match, ignored.");
+            LOGW("image trans frame head signature not match, ignored.");
             return false;
         }
         if (memcmp(frame + IMTR_ENDSIG_OFF, IMTR_ENDSIG, IMTR_ENDSIG_BYTES) != 0) {
-            OLOG("WARNING: image trans frame tail signature not match, ignored.");
+            LOGW("image trans frame tail signature not match, ignored.");
             return false;
         }
         
@@ -570,7 +570,7 @@ protected:
         uint8_t cmos = frame[IMTR_CHID_OFF];
         uint8_t dtsig = frame[IMTR_DTMARK_OFF];
         if (dtsig != IMTR_DTMARK_IMG) {
-            OLOG("WARNING: not an image data frame #%08d: %02X", seq, dtsig);
+            LOGW("not an image data frame #%08d: %02X", seq, dtsig);
             return false;
         }
         
@@ -578,7 +578,7 @@ protected:
         crc = ntohs(crc);
         uint16_t calcedCRC = CRC::Calculate(frame, IMTR_CRC_OFF, CRC::CRC_16_CCITTFALSE());
         if (calcedCRC != crc) {
-            OLOG("WARNING: bad CRC -> in frame: %04X, Calculated: %04X.", crc, calcedCRC);
+            LOGW("bad CRC -> in frame: %04X, Calculated: %04X.", crc, calcedCRC);
             return false;
         }
         

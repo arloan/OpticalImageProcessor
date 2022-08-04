@@ -159,8 +159,8 @@ public:
         int valid = 0;
         
         OLOG("Calculating stitching delta values ...");
-        OLOG("| offset |  delta x |  delta y | response | r |");
-        OLOG("-----------------------------------------------");
+        RLOG("| offset |  delta x |  delta y | response | r |");
+        RLOG("-----------------------------------------------");
         for (int i = 0; i < mSections; ++i) {
             int line_offset = gapLines + i * stepLines;
             size_t offset = (size_t)line_offset * BYTES_PER_PANLINE;
@@ -182,7 +182,7 @@ public:
                 mResponse += resp;
                 valid++;
             }
-            OLOG("|%7d |%10.4f|%10.4f|%10.4f|%s|",
+            RLOG("|%7d |%10.4f|%10.4f|%10.4f|%s|",
                  line_offset, rv.x, rv.y, resp,
                  resp >= STT_DEF_PHCTHRHLD ? " ✔︎ " : " ✘ ");
         }

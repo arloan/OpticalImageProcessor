@@ -468,24 +468,24 @@ protected:
     }
     
     void DumpInterBandShiftValues(int slices, int sections) {
-        OLOG("|#SLC|Start|Center| End "
+        RLOG("|#SLC|Start|Center| End "
              "|   B1.x   |   B2.x   |   B3.x   |   B4.x   "
              "|   B1.y   |   B2.y   |   B3.y   |   B4.y   "
              "|   B1.r   |   B2.r   |   B3.r   |   B4.r   |");
         int sliceCols = PIXELS_PER_LINE / slices;
         for (int s = 0; s < sections; ++s) {
-            OLOG("----------------------------------------------------------------------------------------------------"
+            RLOG("----------------------------------------------------------------------------------------------------"
                  "---------------------------------------------------------");
             for (int i = 0; i < slices; ++i) {
                 int ii = i + s * slices;
-                OLOG("|%4d|%5d|%6d|%5d|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|"
+                RLOG("|%4d|%5d|%6d|%5d|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|%10.4f|"
                      , i, i * sliceCols, mBandShift[0][ii].cx, (i + 1) * sliceCols
                      , mBandShift[0][ii].dx, mBandShift[1][ii].dx, mBandShift[2][ii].dx, mBandShift[3][ii].dx
                      , mBandShift[0][ii].dy, mBandShift[1][ii].dy, mBandShift[2][ii].dy, mBandShift[3][ii].dy
                      , mBandShift[0][ii].rs, mBandShift[1][ii].rs, mBandShift[2][ii].rs, mBandShift[3][ii].rs);
             }
         }
-        OLOG("----------------------------------------------------------------------------------------------------"
+        RLOG("----------------------------------------------------------------------------------------------------"
              "---------------------------------------------------------");
     }
     

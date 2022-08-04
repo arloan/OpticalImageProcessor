@@ -17,6 +17,11 @@
 
 USING_NS(OIP)
 
+struct usage_error : public std::invalid_argument {
+    usage_error(const std::string & s) : std::invalid_argument(s) {}
+    usage_error(const char * s) : std::invalid_argument(s) {}
+};
+
 struct InputParameters {
     std::string RawFilePAN;
     std::string RawFileMSS;
@@ -274,14 +279,14 @@ void PreStitch() {
 void DefaultAction() {
     const InputParameters & ip = ips_;
     if (ip.doRRC4PAN && ip.RRCParaPAN.length() == 0) {
-        throw std::invalid_argument("RRC parameter file of PAN needed");
+        throw usage_error("RRC parameter file of PAN needed");
     }
     if (ip.doRRC4MSS
         &&(ip.RRCParaMSS[0].length() == 0
         || ip.RRCParaMSS[1].length() == 0
         || ip.RRCParaMSS[2].length() == 0
         || ip.RRCParaMSS[3].length() == 0)) {
-        throw std::invalid_argument("RRC parameter file of all MSS Bands needed");
+        throw usage_error("RRC parameter file of all MSS Bands needed");
     }
     
     PreProcessor pp(  ip.RawFilePAN
@@ -302,15 +307,28 @@ void DefaultAction() {
     pp.DoInterBandAlignment(ip.IBPA_BatchLines, ip.IBPA_LineOffset, ip.IBPA_OverlapLines, ip.keepLeadingOverlappedLines);
 }
 
+logger & logger__ = * new logger();
 int main(int argc, const char * argv[]) {
     try {
+        logger__.setup(
+            LSV_TRACE,
+            [](){
+                auto ev = getenv("LOGFILE");
+                if (ev) return (const char *)ev;
+                return "oip.log";
+            }(),
+            logger::timestamped);
+        
         GDALAllRegister();
         return ParseInputParametersFromCommandLineArguments(argc, argv);
-    } catch (std::exception & ex) {
-        printf("FATAL ERROR: %s.\n", ex.what());
+    } catch (usage_error & ex) {
+        printf("USAGE ERROR: %s.\n", ex.what());
         return 254;
+    } catch (std::exception & ex) {
+        LOGE("%s.", ex.what());
+        return 2;
     } catch (...) {
-        printf("UNKOWN FATAL ERROR OCCURED.\n");
+        LOGF("UNKOWN FATAL ERROR OCCURED.");
         return 1;
     }
 }

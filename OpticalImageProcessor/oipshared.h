@@ -68,15 +68,18 @@
 
 /// https://github.com/arloan/libimsux
 #include <libimsux/imsux.hxx>
+#include <libimsux/logger.h>
 IMSUX_USE_NS
 typedef file_dtor FileDtor;
 
-#define OLOGNEL(fmt, ...) printf(fmt, ##__VA_ARGS__)
-#define OLOG(fmt, ...)  printf(fmt "\n", ##__VA_ARGS__)
-#ifdef DEBUG
-#define DLOG    OLOG
-#else
-#define DLOG
-#endif
+//#define OLOGNEL(fmt, ...) printf(fmt, ##__VA_ARGS__)
+//#define OLOG(fmt, ...)  printf(fmt "\n", ##__VA_ARGS__)
+//#ifdef DEBUG
+//#define DLOG    OLOG
+//#else
+//#define DLOG
+//#endif
+#define OLOG LOGT
+#define RLOG LOGX(LSV_TRACE,true)
 
 #endif /* oipshared_h */
