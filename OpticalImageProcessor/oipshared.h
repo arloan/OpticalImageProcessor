@@ -34,7 +34,7 @@
 
 #define IBCV_DEF_THRESHOLD  0.4 // valid Inter Band Correlation Value threshold
 #define IBCV_MIN_COUNT      5   // minimum IBC value count before polynomial fitting
-#define IBCV_DEF_SECTIONS   3
+#define IBCV_DEF_SECTIONS   5
 #define IBCV_DEF_SLICES     10
 #define IBCV_MIN_SLICES     8
 
