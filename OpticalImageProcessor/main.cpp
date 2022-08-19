@@ -65,6 +65,8 @@ struct StitchParams {
     int sectionLines;
     int overlapCols;
     int edgeCols;
+    double stThreshold;
+    double maxDeltaY;
     
     bool doRRC;
     bool onlyParamCalc;
@@ -74,6 +76,8 @@ struct StitchParams {
         sectionLines(STT_DEF_SECLINES),
         overlapCols(STT_DEF_OVERLAPPX),
         edgeCols(STT_DEF_EDGECOLS),
+        stThreshold(STT_DEF_PHCTHRHLD),
+        maxDeltaY(STT_DEF_MAXDELTAY),
         doRRC(true),
         onlyParamCalc(false)
     {}
@@ -121,6 +125,11 @@ int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) 
     psa.add_option("--stitch-overlap",
                    stp_.overlapCols,
                    "Overlapped columns of pixel for PAN image stitching")->default_val(STT_DEF_OVERLAPPX);
+    psa.add_option("--stt-threshold", stp_.stThreshold,
+                   "Threshold of response value for stitiching parameter calculation result.")->default_val(STT_DEF_PHCTHRHLD);
+    psa.add_option("--stt-maxdeltay", stp_.maxDeltaY,
+                   "Ignore deltaY value that ABS value of which exceeds specified value "
+                   "for stitiching parameter calculation result, 0 means NOT doing such kind of filtering.")->default_val(STT_DEF_MAXDELTAY);
     psa.add_option("-e,--edge-cols", stp_.edgeCols,
                    "Ignored edge cols (right edge of PAN1 & left edge of PAN2) "
                    "when calculating stitching parameter")->default_val(0)->check([](const std::string & v) {
@@ -268,7 +277,7 @@ void PreStitch() {
                  stp.sectionLines,
                  stp.overlapCols);
     
-    stt.CalcSttParameters();
+    stt.CalcSttParameters(stp_.stThreshold, stp_.maxDeltaY, stp_.edgeCols);
     
     if (!stp.onlyParamCalc) {
         if (stp.doRRC) stt.DoRRC();

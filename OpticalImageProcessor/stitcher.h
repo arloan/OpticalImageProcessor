@@ -145,7 +145,9 @@ public:
         IMO::DoRRC4RAW(mFilePAN2, PIXELS_PER_LINE, mParamFileRRC2, mRrcFilePAN2);
     }
     
-    void CalcSttParameters(int edgeCols = STT_DEF_EDGECOLS) {
+    void CalcSttParameters(double threshold = STT_DEF_PHCTHRHLD,
+                           double maxDeltaY = STT_DEF_MAXDELTAY,
+                           int edgeCols = STT_DEF_EDGECOLS) {
         int gapLines = (mLinesPAN - mSections * mLinePerSection) / (mSections + 1);
         int stepLines = gapLines + mLinePerSection;
         int sectionBytes = mLinePerSection * BYTES_PER_PANLINE;
@@ -176,7 +178,8 @@ public:
             double resp = 0.0;
             cv::Point2d rv;
             rv = cv::phaseCorrelate(sliceF1.clone(), sliceF2.clone(), cv::noArray(), &resp);
-            if (resp >= STT_DEF_PHCTHRHLD) {
+            bool isValid = resp >= threshold && (maxDeltaY <= 0.0 || std::abs(rv.y) <= maxDeltaY);
+            if (isValid) {
                 mDeltaX   += rv.x;
                 mDeltaY   += rv.y;
                 mResponse += resp;
@@ -184,7 +187,7 @@ public:
             }
             RLOG("|%7d |%10.4f|%10.4f|%10.4f|%s|",
                  line_offset, rv.x, rv.y, resp,
-                 resp >= STT_DEF_PHCTHRHLD ? " ✔︎ " : " ✘ ");
+                 isValid ? " ✔︎ " : " ✘ ");
         }
         if (valid == 0) {
             throw std::runtime_error("No valid delta value found for stitching parameter calculating");
