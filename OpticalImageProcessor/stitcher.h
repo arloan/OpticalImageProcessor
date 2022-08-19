@@ -119,7 +119,7 @@ public:
             OLOG("Written.");
         };
         
-        int ucut = mDeltaY >= 0.0 ? 0 : (int)mDeltaY + 1;
+        int ucut = mDeltaY >= 0.0 ? 0 : (int)(-mDeltaY) + 1;
         int bcut = mDeltaY >= 0.0 ? (int)mDeltaY + 1 : 0;
         stop_watch sw;
         int imageLines = IMO::SectionaryRemap(mLinesPAN, ucut, bcut,

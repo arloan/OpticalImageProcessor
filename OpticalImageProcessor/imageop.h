@@ -238,6 +238,7 @@ public:
                                int border_mode = cv::BORDER_CONSTANT,
                                const cv::Scalar & border_value = cv::Scalar()) {
         
+        assert(upper_cut >= 0 && bottom_cut >= 0);
         if (total_rows <= REMAP_ROW_GUARD) {
             throw std::invalid_argument("too few data rows, please use cv::remap()");
         }
