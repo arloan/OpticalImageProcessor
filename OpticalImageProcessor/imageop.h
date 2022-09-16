@@ -234,7 +234,7 @@ public:
                                std::function<void(const cv::Mat &data, int row_offset)>write_upper,
                                std::function<void(const cv::Mat &data, int row_offset)>write_dst,
                                std::function<void(const cv::Mat &data, int row_offset)>write_bottom,
-                               int interpolation = cv::INTER_CUBIC,
+                               int interpolation = cv::INTER_LINEAR /*cv::INTER_CUBIC*/,
                                int border_mode = cv::BORDER_CONSTANT,
                                const cv::Scalar & border_value = cv::Scalar()) {
         

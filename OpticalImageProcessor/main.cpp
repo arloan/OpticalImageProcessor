@@ -91,7 +91,7 @@ void DefaultAction();
 
 int ParseInputParametersFromCommandLineArguments(int argc, const char * argv[]) {
     CLI::App app("Optical Satellite Image Pre-Processing/Processing Utility", "OpticalImageProcessor");
-    app.set_version_flag("-v,--version", "1.1");
+    app.set_version_flag("-v,--version", "1.1a-220916");
     app.require_subcommand(0, 1);
     
     // `auxsep` sub command arguments
