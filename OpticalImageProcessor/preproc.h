@@ -454,7 +454,7 @@ protected:
                       alignedBands[b],
                       cv::Mat(rows, PIXELS_PER_MSSBAND, CV_32FC1, mapX),
                       cv::Mat(rows, PIXELS_PER_MSSBAND, CV_32FC1, mapY),
-                      cv::INTER_LINEAR /*cv::INTER_CUBIC*/, cv::BORDER_CONSTANT);
+                      cv::INTER_CUBIC, cv::BORDER_CONSTANT);
 
             OLOG("[BAND#%d] band remapping done.", b);
         }
